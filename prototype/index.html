@@ -1,0 +1,1185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Insight · 经营分析</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600;700&family=Bebas+Neue&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg-base:   #0b0f14;
+  --bg-card:   #111720;
+  --bg-hover:  #161d28;
+  --bg-border: #1e2a38;
+  --accent:    #f0a500;
+  --accent2:   #00c9a7;
+  --red:       #ef4444;
+  --amber:     #f59e0b;
+  --green:     #10b981;
+  --blue:      #3b82f6;
+  --text-pri:  #e8edf3;
+  --text-sec:  #7a8fa6;
+  --text-dim:  #3d5166;
+  --sidebar-w: 220px;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Noto Sans SC', sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--bg-base); color: var(--text-pri); font-family: var(--sans); font-size: 13px; overflow: hidden; }
+
+/* ── LAYOUT ─────────────────────────────────────────── */
+.app { display: flex; height: 100vh; }
+
+/* ── SIDEBAR ─────────────────────────────────────────── */
+.sidebar {
+  width: var(--sidebar-w); flex-shrink: 0;
+  background: var(--bg-card);
+  border-right: 1px solid var(--bg-border);
+  display: flex; flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.sidebar-logo {
+  padding: 22px 20px 18px;
+  border-bottom: 1px solid var(--bg-border);
+}
+.logo-en {
+  font-family: 'Bebas Neue', cursive;
+  font-size: 26px; letter-spacing: 3px;
+  color: var(--accent);
+  line-height: 1;
+}
+.logo-zh {
+  font-size: 11px; color: var(--text-sec);
+  letter-spacing: 2px; margin-top: 3px;
+}
+.nav-section { padding: 16px 0 4px; }
+.nav-label {
+  font-size: 10px; letter-spacing: 2px;
+  color: var(--text-dim); text-transform: uppercase;
+  padding: 0 20px 6px;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 9px 20px; cursor: pointer;
+  color: var(--text-sec); font-size: 13px;
+  transition: all .15s; position: relative;
+  border-left: 2px solid transparent;
+}
+.nav-item:hover { color: var(--text-pri); background: var(--bg-hover); }
+.nav-item.active {
+  color: var(--accent); background: rgba(240,165,0,.07);
+  border-left-color: var(--accent);
+}
+.nav-icon { width: 16px; text-align: center; font-size: 14px; flex-shrink: 0; }
+.nav-badge {
+  margin-left: auto; background: var(--accent);
+  color: #000; font-size: 10px; font-weight: 700;
+  border-radius: 9px; padding: 1px 6px;
+}
+.sidebar-footer {
+  margin-top: auto; padding: 14px 20px;
+  border-top: 1px solid var(--bg-border);
+  color: var(--text-dim); font-size: 11px;
+}
+
+/* ── MAIN ─────────────────────────────────────────── */
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.topbar {
+  height: 52px; flex-shrink: 0;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--bg-border);
+  display: flex; align-items: center;
+  padding: 0 24px; gap: 12px;
+}
+.topbar-title { font-size: 15px; font-weight: 600; }
+.topbar-sub { font-size: 12px; color: var(--text-sec); }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.year-select {
+  background: var(--bg-base); border: 1px solid var(--bg-border);
+  color: var(--text-pri); font-family: var(--mono);
+  font-size: 13px; padding: 5px 10px; border-radius: 6px;
+  cursor: pointer; outline: none;
+}
+.year-select:focus { border-color: var(--accent); }
+.topbar-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--green); box-shadow: 0 0 6px var(--green);
+}
+.content { flex: 1; overflow-y: auto; padding: 20px 24px; }
+.content::-webkit-scrollbar { width: 4px; }
+.content::-webkit-scrollbar-thumb { background: var(--bg-border); border-radius: 2px; }
+
+/* ── VIEWS ─────────────────────────────────────────── */
+.view { display: none; }
+.view.active { display: block; }
+
+/* ── CARDS ─────────────────────────────────────────── */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--bg-border);
+  border-radius: 10px; padding: 18px 20px;
+}
+.card-title {
+  font-size: 11px; letter-spacing: 1.5px;
+  color: var(--text-sec); text-transform: uppercase;
+  margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+}
+.card-title::before {
+  content: ''; display: block;
+  width: 3px; height: 12px; border-radius: 2px;
+  background: var(--accent);
+}
+
+/* ── KPI GRID ─────────────────────────────────────────── */
+.kpi-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; margin-bottom: 16px; }
+.kpi-card {
+  background: var(--bg-card); border: 1px solid var(--bg-border);
+  border-radius: 10px; padding: 16px 18px;
+  position: relative; overflow: hidden;
+  transition: border-color .2s;
+}
+.kpi-card:hover { border-color: var(--accent); }
+.kpi-card::after {
+  content: ''; position: absolute;
+  top: 0; left: 0; right: 0; height: 2px;
+}
+.kpi-card.k-contract::after { background: var(--blue); }
+.kpi-card.k-revenue::after  { background: var(--green); }
+.kpi-card.k-payment::after  { background: var(--accent); }
+.kpi-label { font-size: 11px; color: var(--text-sec); letter-spacing: 1px; margin-bottom: 8px; }
+.kpi-value {
+  font-family: var(--mono); font-size: 28px; font-weight: 700;
+  line-height: 1; color: var(--text-pri);
+}
+.kpi-unit { font-size: 12px; color: var(--text-sec); font-family: var(--sans); }
+.kpi-meta { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.kpi-rate { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+.kpi-rate.good { color: var(--green); }
+.kpi-rate.warn { color: var(--amber); }
+.kpi-rate.bad  { color: var(--red); }
+.kpi-yoy { font-size: 11px; color: var(--text-sec); }
+.kpi-yoy span { font-family: var(--mono); }
+.kpi-yoy .up   { color: var(--green); }
+.kpi-yoy .down { color: var(--red); }
+.kpi-progress { height: 3px; background: var(--bg-border); border-radius: 2px; margin-top: 10px; overflow: hidden; }
+.kpi-bar { height: 100%; border-radius: 2px; transition: width 1.2s cubic-bezier(.4,0,.2,1); width: 0; }
+.kpi-card.k-contract .kpi-bar { background: var(--blue); }
+.kpi-card.k-revenue  .kpi-bar { background: var(--green); }
+.kpi-card.k-payment  .kpi-bar { background: var(--accent); }
+
+/* ── HEAT MAP ─────────────────────────────────────────── */
+.heatmap-wrap { overflow-x: auto; }
+.heatmap {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+}
+.heatmap th {
+  padding: 8px 12px; color: var(--text-sec);
+  font-weight: 500; letter-spacing: 1px; font-size: 11px;
+  border-bottom: 1px solid var(--bg-border); white-space: nowrap;
+}
+.heatmap th:first-child { text-align: left; }
+.heatmap td {
+  padding: 10px 12px; border-bottom: 1px solid rgba(30,42,56,.6);
+  text-align: center; position: relative;
+}
+.heatmap td:first-child { text-align: left; }
+.div-name {
+  font-weight: 500; color: var(--text-pri);
+  cursor: pointer; transition: color .15s;
+}
+.div-name:hover { color: var(--accent); text-decoration: underline; }
+.rate-cell {
+  font-family: var(--mono); font-size: 13px; font-weight: 600;
+  padding: 4px 8px; border-radius: 5px; display: inline-block;
+}
+.rate-cell.good  { color: var(--green);  background: rgba(16,185,129,.12); }
+.rate-cell.warn  { color: var(--amber);  background: rgba(245,158,11,.12); }
+.rate-cell.bad   { color: var(--red);    background: rgba(239,68,68,.12); }
+.actual-val { font-family: var(--mono); font-size: 12px; color: var(--text-sec); }
+
+/* ── TWO COL GRID ─────────────────────────────────────────── */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.three-col { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 14px; }
+.full-col { grid-column: 1/-1; }
+.chart-wrap { position: relative; height: 220px; }
+.chart-wrap.tall { height: 280px; }
+
+/* ── BACK BUTTON ─────────────────────────────────────────── */
+.back-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--text-sec); cursor: pointer;
+  font-size: 12px; margin-bottom: 16px;
+  padding: 5px 10px; border-radius: 6px;
+  border: 1px solid var(--bg-border);
+  transition: all .15s;
+}
+.back-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ── SECTION HEADER ─────────────────────────────────────────── */
+.section-header {
+  display: flex; align-items: baseline; gap: 10px;
+  margin-bottom: 16px;
+}
+.section-title { font-size: 16px; font-weight: 600; }
+.section-sub { font-size: 12px; color: var(--text-sec); }
+
+/* ── YoY CARDS ─────────────────────────────────────────── */
+.yoy-grid { display: grid; grid-template-columns: repeat(5,1fr); gap: 10px; }
+.yoy-card {
+  background: var(--bg-card); border: 1px solid var(--bg-border);
+  border-radius: 8px; padding: 12px 14px;
+}
+.yoy-div { font-size: 11px; color: var(--text-sec); margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.yoy-val { font-family: var(--mono); font-size: 18px; font-weight: 700; }
+.yoy-val.up   { color: var(--green); }
+.yoy-val.down { color: var(--red); }
+.yoy-label { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+
+/* ── FUNNEL ─────────────────────────────────────────── */
+.funnel-list { display: flex; flex-direction: column; gap: 8px; }
+.funnel-item { display: flex; align-items: center; gap: 10px; }
+.funnel-label { width: 70px; font-size: 11px; color: var(--text-sec); flex-shrink: 0; }
+.funnel-bar-wrap { flex: 1; background: var(--bg-border); border-radius: 3px; height: 22px; overflow: hidden; }
+.funnel-bar {
+  height: 100%; border-radius: 3px;
+  display: flex; align-items: center; padding-left: 8px;
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  transition: width 1s ease; width: 0;
+}
+.funnel-count { width: 40px; text-align: right; font-family: var(--mono); font-size: 11px; color: var(--text-sec); }
+
+/* ── OPP TABLE ─────────────────────────────────────────── */
+.opp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.opp-table th {
+  padding: 8px 10px; color: var(--text-sec); font-weight: 500;
+  border-bottom: 1px solid var(--bg-border); text-align: left;
+  font-size: 11px; letter-spacing: .5px;
+}
+.opp-table td {
+  padding: 9px 10px; border-bottom: 1px solid rgba(30,42,56,.5);
+  color: var(--text-pri);
+}
+.opp-table tr:hover td { background: var(--bg-hover); }
+.stage-badge {
+  font-size: 10px; padding: 2px 7px; border-radius: 10px;
+  font-weight: 500; white-space: nowrap;
+}
+.s-lead   { background: rgba(59,130,246,.15); color: #93c5fd; }
+.s-proj   { background: rgba(139,92,246,.15); color: #c4b5fd; }
+.s-quote  { background: rgba(245,158,11,.15);  color: #fcd34d; }
+.s-track  { background: rgba(16,185,129,.15);  color: #6ee7b7; }
+.s-done   { background: rgba(16,185,129,.3);   color: #34d399; }
+.status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; }
+.ongoing { background: var(--blue); }
+.won     { background: var(--green); }
+.lost    { background: var(--red); }
+.hold    { background: var(--text-dim); }
+.mono { font-family: var(--mono); }
+
+/* ── TREND TABLE ─────────────────────────────────────────── */
+.trend-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.trend-table th {
+  padding: 8px 10px; color: var(--text-sec); font-weight: 500;
+  font-size: 11px; border-bottom: 1px solid var(--bg-border);
+  text-align: center;
+}
+.trend-table th:first-child, .trend-table th:nth-child(2) { text-align: left; }
+.trend-table td {
+  padding: 9px 10px; text-align: center;
+  border-bottom: 1px solid rgba(30,42,56,.5);
+  font-family: var(--mono); font-size: 12px;
+}
+.trend-table td:first-child, .trend-table td:nth-child(2) { text-align: left; font-family: var(--sans); }
+.trend-table .growth.up   { color: var(--green); }
+.trend-table .growth.down { color: var(--red); }
+.trend-table .growth.flat { color: var(--text-sec); }
+
+/* ── SCROLLBAR OVERRIDE ─────────────────────────────────────────── */
+select option { background: #1a2332; }
+
+/* ── ANIMATION ─────────────────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.view.active .card,
+.view.active .kpi-card,
+.view.active .yoy-card { animation: fadeUp .3s ease both; }
+.view.active .kpi-card:nth-child(1) { animation-delay: .05s; }
+.view.active .kpi-card:nth-child(2) { animation-delay: .10s; }
+.view.active .kpi-card:nth-child(3) { animation-delay: .15s; }
+
+.gap-stat { display: flex; flex-direction: column; gap: 12px; }
+.gap-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--bg-base); border-radius: 7px; border: 1px solid var(--bg-border); }
+.gap-metric { font-size: 12px; color: var(--text-sec); }
+.gap-val { font-family: var(--mono); font-size: 14px; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ── SIDEBAR ─────────────────────────────────────── -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-en">INSIGHT</div>
+    <div class="logo-zh">经营分析系统</div>
+  </div>
+  <div style="flex:1; overflow-y:auto;">
+    <div class="nav-section">
+      <div class="nav-label">看板</div>
+      <div class="nav-item active" onclick="showView('overview',this)">
+        <span class="nav-icon">◈</span> 总览仪表盘
+      </div>
+      <div class="nav-item" id="nav-division" style="display:none" onclick="showView('division',this)">
+        <span class="nav-icon">◉</span> 事业部详情
+      </div>
+      <div class="nav-item" onclick="showView('opportunity',this)">
+        <span class="nav-icon">◇</span> 商机支撑分析
+      </div>
+      <div class="nav-item" onclick="showView('trend',this)">
+        <span class="nav-icon">◌</span> 同比趋势分析
+      </div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">数据管理</div>
+      <div class="nav-item" onclick="showView('targets',this)">
+        <span class="nav-icon">◻</span> 年度目标管理
+      </div>
+      <div class="nav-item" onclick="showView('actuals',this)">
+        <span class="nav-icon">↑</span> 月度数据导入
+        <span class="nav-badge">NEW</span>
+      </div>
+      <div class="nav-item" onclick="showView('oppmgmt',this)">
+        <span class="nav-icon">◈</span> 商机管理
+      </div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">系统</div>
+      <div class="nav-item" onclick="showView('settings',this)">
+        <span class="nav-icon">⚙</span> 设置 &amp; 模板
+      </div>
+    </div>
+  </div>
+  <div class="sidebar-footer">
+    数据截至 2026年3月<br>产品中心
+  </div>
+</aside>
+
+<!-- ── MAIN ─────────────────────────────────────────── -->
+<div class="main">
+  <div class="topbar">
+    <div>
+      <div class="topbar-title" id="topbar-title">总览仪表盘</div>
+      <div class="topbar-sub" id="topbar-sub">产品中心 · 5个事业部</div>
+    </div>
+    <div class="topbar-right">
+      <select class="year-select" id="year-sel" onchange="setYear(this.value)">
+        <option value="2026">2026年</option>
+        <option value="2025">2025年</option>
+      </select>
+      <div class="topbar-dot" title="数据已更新"></div>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- ══ VIEW: OVERVIEW ══════════════════════════════ -->
+    <div class="view active" id="view-overview">
+      <!-- KPI Cards -->
+      <div class="kpi-grid" id="kpi-cards"></div>
+
+      <!-- YoY Row -->
+      <div class="card" style="margin-bottom:14px;">
+        <div class="card-title">各事业部同比增长率（合同·YTD）</div>
+        <div class="yoy-grid" id="yoy-grid"></div>
+      </div>
+
+      <!-- Heatmap + Chart -->
+      <div class="two-col" style="margin-bottom:14px;">
+        <div class="card">
+          <div class="card-title">目标达成热力表</div>
+          <div class="heatmap-wrap">
+            <table class="heatmap" id="heatmap-table"></table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">合同 YTD 完成率对比</div>
+          <div class="chart-wrap"><canvas id="chart-overview-bar"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ VIEW: DIVISION DETAIL ═══════════════════════ -->
+    <div class="view" id="view-division">
+      <div class="back-btn" onclick="showView('overview', document.querySelector('.nav-item'))">← 返回总览</div>
+      <div class="section-header">
+        <div class="section-title" id="div-detail-name">—</div>
+        <div class="section-sub" id="div-detail-year">2026年</div>
+      </div>
+      <div class="kpi-grid" id="div-kpi-cards"></div>
+      <div class="two-col" style="margin-bottom:14px;">
+        <div class="card">
+          <div class="card-title">月度完成趋势（实际 vs 目标）</div>
+          <div class="chart-wrap tall"><canvas id="chart-div-trend"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-title">月度完成率（含60%预警线）</div>
+          <div class="chart-wrap tall"><canvas id="chart-div-rate"></canvas></div>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="card">
+          <div class="card-title">目标缺口分析</div>
+          <div class="gap-stat" id="div-gap-stat"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">本年度商机支撑</div>
+          <div class="gap-stat" id="div-opp-stat"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ VIEW: OPPORTUNITY ════════════════════════════ -->
+    <div class="view" id="view-opportunity">
+      <div class="section-header">
+        <div class="section-title">商机支撑分析</div>
+        <div class="section-sub">2026年 · 全中心</div>
+      </div>
+      <div class="kpi-grid" style="margin-bottom:14px;">
+        <div class="kpi-card k-contract">
+          <div class="kpi-label">商机总金额（进行中）</div>
+          <div style="display:flex;align-items:baseline;gap:4px">
+            <div class="kpi-value" id="opp-total-val">—</div>
+            <div class="kpi-unit">万元</div>
+          </div>
+          <div class="kpi-meta">
+            <div class="kpi-yoy">共 <span id="opp-total-count" style="color:var(--text-pri)">—</span> 条商机</div>
+          </div>
+        </div>
+        <div class="kpi-card k-revenue">
+          <div class="kpi-label">合同缺口覆盖率</div>
+          <div style="display:flex;align-items:baseline;gap:4px">
+            <div class="kpi-value" id="opp-cover-val">—</div>
+            <div class="kpi-unit">%</div>
+          </div>
+          <div class="kpi-meta">
+            <div class="kpi-yoy">商机金额 / 合同缺口</div>
+          </div>
+        </div>
+        <div class="kpi-card k-payment">
+          <div class="kpi-label">本季度到期商机</div>
+          <div style="display:flex;align-items:baseline;gap:4px">
+            <div class="kpi-value" id="opp-q-val">—</div>
+            <div class="kpi-unit">万元</div>
+          </div>
+          <div class="kpi-meta">
+            <div class="kpi-yoy">Q1 商机预计达成金额</div>
+          </div>
+        </div>
+      </div>
+      <div class="two-col" style="margin-bottom:14px;">
+        <div class="card">
+          <div class="card-title">商机阶段漏斗</div>
+          <div class="funnel-list" id="funnel-list"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">季度商机分布</div>
+          <div class="chart-wrap"><canvas id="chart-opp-quarter"></canvas></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">商机明细</div>
+        <div style="overflow-x:auto">
+          <table class="opp-table" id="opp-table"></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ VIEW: TREND ══════════════════════════════════ -->
+    <div class="view" id="view-trend">
+      <div class="section-header">
+        <div class="section-title">同比 · 趋势分析</div>
+        <div class="section-sub">2025 vs 2026</div>
+      </div>
+      <div class="card" style="margin-bottom:14px;">
+        <div class="card-title">年度完成总量对比（合同，单位：万元）</div>
+        <div class="chart-wrap tall"><canvas id="chart-trend-year"></canvas></div>
+      </div>
+      <div class="two-col" style="margin-bottom:14px;">
+        <div class="card">
+          <div class="card-title">月度走势双年对比（全中心·合同）</div>
+          <div class="chart-wrap"><canvas id="chart-trend-monthly"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-title">各事业部增长率排行</div>
+          <div class="chart-wrap"><canvas id="chart-trend-rank"></canvas></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">年度全景矩阵（合同，万元）</div>
+        <div style="overflow-x:auto">
+          <table class="trend-table" id="trend-table"></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ VIEW: TARGETS (placeholder) ════════════════ -->
+    <div class="view" id="view-targets">
+      <div class="section-header"><div class="section-title">年度目标管理</div></div>
+      <div class="card" id="targets-card"></div>
+    </div>
+
+    <!-- ══ VIEW: ACTUALS (placeholder) ════════════════ -->
+    <div class="view" id="view-actuals">
+      <div class="section-header"><div class="section-title">月度数据导入</div></div>
+      <div class="card">
+        <div class="card-title">上传数据文件</div>
+        <div style="border:2px dashed var(--bg-border);border-radius:8px;padding:40px;text-align:center;color:var(--text-sec);">
+          <div style="font-size:32px;margin-bottom:12px;">↑</div>
+          <div style="font-size:14px;margin-bottom:6px;color:var(--text-pri)">拖放文件至此处，或点击选择</div>
+          <div style="font-size:12px;">支持 .xlsx · .xls · .csv（UTF-8）</div>
+          <button style="margin-top:16px;background:var(--accent);color:#000;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px;">选择文件</button>
+        </div>
+        <div style="margin-top:16px;">
+          <div class="card-title">导入历史</div>
+          <table class="opp-table" style="font-size:12px;">
+            <thead><tr><th>导入时间</th><th>文件名</th><th>类型</th><th>成功</th><th>失败</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr><td class="mono">2026-03-05 14:22</td><td>月度完成_2026Q1.xlsx</td><td>月度完成</td><td class="mono" style="color:var(--green)">75</td><td class="mono">0</td><td><span class="stage-badge s-done">成功</span></td></tr>
+              <tr><td class="mono">2026-01-08 09:15</td><td>年度目标_2026.xlsx</td><td>年度目标</td><td class="mono" style="color:var(--green)">15</td><td class="mono">0</td><td><span class="stage-badge s-done">成功</span></td></tr>
+              <tr><td class="mono">2025-12-20 16:40</td><td>商机汇总_2025Q4.xlsx</td><td>商机</td><td class="mono" style="color:var(--green)">32</td><td class="mono" style="color:var(--red)">3</td><td><span class="stage-badge s-quote">部分失败</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ VIEW: OPPMGMT (placeholder) ════════════════ -->
+    <div class="view" id="view-oppmgmt">
+      <div class="section-header"><div class="section-title">商机管理</div>
+        <button style="margin-left:auto;background:var(--accent);color:#000;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-weight:600;font-size:12px;">＋ 新增商机</button>
+      </div>
+      <div class="card">
+        <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+          <select class="year-select">
+            <option>2026年</option><option>2025年</option>
+          </select>
+          <select class="year-select"><option>全部季度</option><option>Q1</option><option>Q2</option><option>Q3</option><option>Q4</option></select>
+          <select class="year-select"><option>全部事业部</option><option>智能建造事业部</option><option>大数据事业部</option><option>数字交易事业部</option><option>智慧政务事业部</option><option>创新业务事业部</option></select>
+          <select class="year-select"><option>全部指标</option><option>合同</option><option>收入</option><option>回款</option></select>
+        </div>
+        <table class="opp-table" id="oppmgmt-table"></table>
+      </div>
+    </div>
+
+    <!-- ══ VIEW: SETTINGS (placeholder) ══════════════ -->
+    <div class="view" id="view-settings">
+      <div class="section-header"><div class="section-title">设置 &amp; 模板</div></div>
+      <div class="two-col">
+        <div class="card">
+          <div class="card-title">导入模板下载</div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg-base);border-radius:7px;border:1px solid var(--bg-border)">
+              <div><div style="font-size:13px;font-weight:500">年度目标导入模板</div><div style="font-size:11px;color:var(--text-sec)">批量设置年度目标及月度分解</div></div>
+              <button style="background:var(--bg-border);color:var(--text-pri);border:none;padding:5px 12px;border-radius:5px;cursor:pointer;font-size:12px;">↓ 下载</button>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg-base);border-radius:7px;border:1px solid var(--bg-border)">
+              <div><div style="font-size:13px;font-weight:500">月度完成数据导入模板</div><div style="font-size:11px;color:var(--text-sec)">录入各事业部月度实际完成数据</div></div>
+              <button style="background:var(--bg-border);color:var(--text-pri);border:none;padding:5px 12px;border-radius:5px;cursor:pointer;font-size:12px;">↓ 下载</button>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg-base);border-radius:7px;border:1px solid var(--bg-border)">
+              <div><div style="font-size:13px;font-weight:500">商机数据导入模板</div><div style="font-size:11px;color:var(--text-sec)">批量录入商机明细</div></div>
+              <button style="background:var(--bg-border);color:var(--text-pri);border:none;padding:5px 12px;border-radius:5px;cursor:pointer;font-size:12px;">↓ 下载</button>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">系统配置</div>
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            <div><div style="font-size:12px;color:var(--text-sec);margin-bottom:5px">完成率预警阈值</div>
+              <input type="number" value="60" style="background:var(--bg-base);border:1px solid var(--bg-border);color:var(--text-pri);padding:6px 10px;border-radius:6px;font-size:13px;width:100px"> <span style="font-size:12px;color:var(--text-sec)">%</span>
+            </div>
+            <div><div style="font-size:12px;color:var(--text-sec);margin-bottom:5px">数据单位</div>
+              <select class="year-select"><option>万元</option><option>元</option><option>亿元</option></select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /app -->
+
+<script>
+// ═══ DATA ═══════════════════════════════════════════════
+const DIVS = [
+  { id:'jzjz', name:'智能建造', full:'智能建造事业部' },
+  { id:'dsjs', name:'大数据',   full:'大数据事业部'   },
+  { id:'szjy', name:'数字交易', full:'数字交易事业部' },
+  { id:'zhzw', name:'智慧政务', full:'智慧政务事业部' },
+  { id:'cxyw', name:'创新业务', full:'创新业务事业部' },
+];
+const METRICS = ['contract','revenue','payment'];
+const M_LABEL = { contract:'合同', revenue:'收入', payment:'回款' };
+
+// Annual targets 2026 (万元)
+const TARGETS_2026 = {
+  jzjz:{ contract:4200, revenue:3600, payment:3200 },
+  dsjs:{ contract:3800, revenue:3200, payment:2800 },
+  szjy:{ contract:5500, revenue:4800, payment:4200 },
+  zhzw:{ contract:3200, revenue:2700, payment:2400 },
+  cxyw:{ contract:1800, revenue:1500, payment:1200 },
+};
+// Annual targets 2025
+const TARGETS_2025 = {
+  jzjz:{ contract:3800, revenue:3200, payment:2900 },
+  dsjs:{ contract:3400, revenue:2900, payment:2500 },
+  szjy:{ contract:5000, revenue:4300, payment:3800 },
+  zhzw:{ contract:3000, revenue:2500, payment:2200 },
+  cxyw:{ contract:1500, revenue:1200, payment:1000 },
+};
+
+// Monthly actuals 2026 (Jan=0...Dec=11), 0 = not yet
+const ACTUALS_2026 = {
+  jzjz:{
+    contract:[380,410,430, 0,0,0,0,0,0,0,0,0],
+    revenue: [310,335,360, 0,0,0,0,0,0,0,0,0],
+    payment: [270,295,315, 0,0,0,0,0,0,0,0,0],
+  },
+  dsjs:{
+    contract:[360,390,420, 0,0,0,0,0,0,0,0,0],
+    revenue: [280,310,330, 0,0,0,0,0,0,0,0,0],
+    payment: [240,265,285, 0,0,0,0,0,0,0,0,0],
+  },
+  szjy:{
+    contract:[490,520,560, 0,0,0,0,0,0,0,0,0],
+    revenue: [420,445,480, 0,0,0,0,0,0,0,0,0],
+    payment: [360,380,400, 0,0,0,0,0,0,0,0,0],
+  },
+  zhzw:{
+    contract:[270,285,300, 0,0,0,0,0,0,0,0,0],
+    revenue: [220,240,255, 0,0,0,0,0,0,0,0,0],
+    payment: [175,185,200, 0,0,0,0,0,0,0,0,0],
+  },
+  cxyw:{
+    contract:[100,110,120, 0,0,0,0,0,0,0,0,0],
+    revenue: [ 70, 80, 88, 0,0,0,0,0,0,0,0,0],
+    payment: [ 55, 62, 70, 0,0,0,0,0,0,0,0,0],
+  },
+};
+// Monthly actuals 2025 (full year)
+const ACTUALS_2025 = {
+  jzjz:{
+    contract:[300,330,355,370,360,380,350,365,380,390,380,400],
+    revenue: [240,265,280,295,290,305,280,295,305,315,305,325],
+    payment: [210,230,250,265,255,270,250,260,275,285,275,295],
+  },
+  dsjs:{
+    contract:[275,300,325,340,330,345,325,340,355,365,355,375],
+    revenue: [215,240,260,275,265,280,260,275,290,300,290,310],
+    payment: [185,205,225,240,230,245,225,240,255,265,255,275],
+  },
+  szjy:{
+    contract:[400,430,460,480,470,490,465,480,500,510,500,525],
+    revenue: [340,365,390,410,400,420,395,410,430,440,430,455],
+    payment: [290,315,340,360,350,370,345,360,380,390,380,405],
+  },
+  zhzw:{
+    contract:[220,240,260,275,265,280,260,275,290,300,290,310],
+    revenue: [175,195,215,230,220,235,215,230,245,255,245,265],
+    payment: [145,160,175,190,180,195,175,190,205,215,205,225],
+  },
+  cxyw:{
+    contract:[ 80, 90,100,110,105,115,105,115,125,130,125,135],
+    revenue: [ 55, 65, 75, 85, 80, 90, 80, 90,100,105,100,110],
+    payment: [ 40, 50, 58, 68, 63, 73, 63, 73, 83, 88, 83, 93],
+  },
+};
+
+// Opportunity data
+const OPPORTUNITIES = [
+  { name:'某市智慧城管平台', div:'智慧政务事业部', metric:'合同', year:2026, quarter:'Q2', amount:680, date:'2026-05-30', stage:'报价', status:'进行中' },
+  { name:'XX集团数字化转型', div:'大数据事业部',   metric:'合同', year:2026, quarter:'Q1', amount:520, date:'2026-03-20', stage:'签约跟进', status:'进行中' },
+  { name:'智慧工地管理系统', div:'智能建造事业部', metric:'合同', year:2026, quarter:'Q2', amount:450, date:'2026-06-15', stage:'立项', status:'进行中' },
+  { name:'数字政务一体化', div:'智慧政务事业部',  metric:'收入', year:2026, quarter:'Q2', amount:380, date:'2026-04-30', stage:'报价', status:'进行中' },
+  { name:'建筑BIM平台升级', div:'智能建造事业部', metric:'合同', year:2026, quarter:'Q3', amount:320, date:'2026-08-20', stage:'线索', status:'进行中' },
+  { name:'区块链交易平台', div:'数字交易事业部',  metric:'合同', year:2026, quarter:'Q1', amount:750, date:'2026-03-31', stage:'签约跟进', status:'已赢单' },
+  { name:'供应链金融系统', div:'数字交易事业部',  metric:'收入', year:2026, quarter:'Q2', amount:560, date:'2026-05-15', stage:'报价', status:'进行中' },
+  { name:'大数据运营平台', div:'大数据事业部',    metric:'合同', year:2026, quarter:'Q3', amount:490, date:'2026-09-10', stage:'立项', status:'进行中' },
+  { name:'创新孵化项目A', div:'创新业务事业部',  metric:'合同', year:2026, quarter:'Q2', amount:180, date:'2026-06-30', stage:'线索', status:'进行中' },
+  { name:'政务数据共享', div:'智慧政务事业部',   metric:'回款', year:2026, quarter:'Q1', amount:290, date:'2026-03-25', stage:'已完成', status:'已赢单' },
+];
+
+// ═══ HELPERS ════════════════════════════════════════════
+const CUR_MONTH = 3; // March = index 2 (0-based) = 3 months YTD
+function ytdActual(divId, metric, year=2026) {
+  const src = year===2026 ? ACTUALS_2026 : ACTUALS_2025;
+  return src[divId][metric].slice(0,CUR_MONTH).reduce((a,b)=>a+b,0);
+}
+function ytdTarget(divId, metric, year=2026) {
+  const src = year===2026 ? TARGETS_2026 : TARGETS_2025;
+  return (src[divId][metric] / 12) * CUR_MONTH;
+}
+function rate(actual, target) { return target>0 ? (actual/target*100) : 0; }
+function rateClass(r) { return r>=80?'good':r>=60?'warn':'bad'; }
+function fmt(n) { return n>=10000 ? (n/10000).toFixed(1)+'亿' : n.toLocaleString('zh-CN'); }
+function pct(n) { return n.toFixed(1)+'%'; }
+
+// ═══ CHART REGISTRY ════════════════════════════════════
+const charts = {};
+function destroyChart(id) { if(charts[id]){ charts[id].destroy(); delete charts[id]; } }
+const CH_DEFAULTS = {
+  plugins:{ legend:{ labels:{ color:'#7a8fa6', font:{size:11} } } },
+  scales:{
+    x:{ ticks:{color:'#7a8fa6',font:{size:10}}, grid:{color:'rgba(30,42,56,.8)'} },
+    y:{ ticks:{color:'#7a8fa6',font:{size:10}}, grid:{color:'rgba(30,42,56,.8)'} },
+  }
+};
+
+// ═══ VIEW CONTROLLER ════════════════════════════════════
+let activeView = 'overview';
+function showView(id, el) {
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+id).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  if(el) el.classList.add('active');
+  activeView = id;
+  const titles = {
+    overview:'总览仪表盘', division:'事业部详情', opportunity:'商机支撑分析',
+    trend:'同比趋势分析', targets:'年度目标管理', actuals:'月度数据导入',
+    oppmgmt:'商机管理', settings:'设置 & 模板'
+  };
+  document.getElementById('topbar-title').textContent = titles[id]||id;
+  if(id==='overview') renderOverview();
+  if(id==='opportunity') renderOpportunity();
+  if(id==='trend') renderTrend();
+  if(id==='targets') renderTargets();
+  if(id==='oppmgmt') renderOppMgmt();
+}
+function setYear(y) { if(activeView==='overview') renderOverview(); }
+
+// ═══ RENDER: OVERVIEW ═══════════════════════════════════
+function renderOverview() {
+  const yr = parseInt(document.getElementById('year-sel').value);
+  const prevYr = yr-1;
+
+  // KPI cards
+  const kpiEl = document.getElementById('kpi-cards');
+  kpiEl.innerHTML='';
+  const totals = {};
+  METRICS.forEach(m=>{
+    const actual = DIVS.reduce((s,d)=>s+ytdActual(d.id,m,yr),0);
+    const target = DIVS.reduce((s,d)=>s+ytdTarget(d.id,m,yr),0);
+    const prevActual = DIVS.reduce((s,d)=>s+ytdActual(d.id,m,prevYr),0);
+    const r = rate(actual,target);
+    const yoy = prevActual>0 ? ((actual-prevActual)/prevActual*100) : null;
+    totals[m]={actual,target,r,yoy};
+    const cls=['k-contract','k-revenue','k-payment'][METRICS.indexOf(m)];
+    const rc = rateClass(r);
+    const yoyTxt = yoy!==null
+      ? `<span class="${yoy>=0?'up':'down'}">${yoy>=0?'▲':'▼'}${Math.abs(yoy).toFixed(1)}%</span> 同比`
+      : '暂无去年数据';
+    kpiEl.innerHTML+=`
+    <div class="kpi-card ${cls}">
+      <div class="kpi-label">${M_LABEL[m]}·YTD完成</div>
+      <div style="display:flex;align-items:baseline;gap:4px">
+        <div class="kpi-value">${fmt(actual)}</div><div class="kpi-unit">万元</div>
+      </div>
+      <div class="kpi-meta">
+        <div class="kpi-rate ${rc}">${pct(r)}</div>
+        <div class="kpi-yoy">${yoyTxt}</div>
+      </div>
+      <div class="kpi-progress"><div class="kpi-bar" data-w="${Math.min(r,100)}" style="width:0"></div></div>
+    </div>`;
+  });
+  setTimeout(()=>{ document.querySelectorAll('.kpi-bar[data-w]').forEach(b=>{ b.style.width=b.dataset.w+'%'; }); },50);
+
+  // YoY grid
+  const yoyEl = document.getElementById('yoy-grid');
+  yoyEl.innerHTML='';
+  DIVS.forEach(d=>{
+    const a26 = ytdActual(d.id,'contract',yr);
+    const a25 = ytdActual(d.id,'contract',prevYr);
+    const g = a25>0 ? ((a26-a25)/a25*100) : 0;
+    const cls2 = g>=0?'up':'down';
+    yoyEl.innerHTML+=`
+    <div class="yoy-card">
+      <div class="yoy-div">${d.name}</div>
+      <div class="yoy-val ${cls2}">${g>=0?'+':''}${g.toFixed(1)}%</div>
+      <div class="yoy-label">${fmt(a25)} → ${fmt(a26)} 万</div>
+    </div>`;
+  });
+
+  // Heatmap
+  const tbl = document.getElementById('heatmap-table');
+  let html=`<thead><tr><th>事业部</th>${METRICS.map(m=>`<th>${M_LABEL[m]}完成率</th><th>${M_LABEL[m]}完成额</th>`).join('')}</tr></thead><tbody>`;
+  DIVS.forEach(d=>{
+    html+=`<tr><td><span class="div-name" onclick="openDivision('${d.id}')">${d.full}</span></td>`;
+    METRICS.forEach(m=>{
+      const a=ytdActual(d.id,m,yr), t=ytdTarget(d.id,m,yr), r2=rate(a,t);
+      html+=`<td><span class="rate-cell ${rateClass(r2)}">${pct(r2)}</span></td>`;
+      html+=`<td><span class="actual-val">${fmt(a)}</span></td>`;
+    });
+    html+='</tr>';
+  });
+  tbl.innerHTML=html+'</tbody>';
+
+  // Bar chart
+  destroyChart('overview-bar');
+  const ctx=document.getElementById('chart-overview-bar').getContext('2d');
+  charts['overview-bar']=new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels:DIVS.map(d=>d.name),
+      datasets:[{
+        label:'合同YTD完成率%',
+        data: DIVS.map(d=>rate(ytdActual(d.id,'contract',yr),ytdTarget(d.id,'contract',yr)).toFixed(1)),
+        backgroundColor: DIVS.map(d=>{ const r3=rate(ytdActual(d.id,'contract',yr),ytdTarget(d.id,'contract',yr)); return r3>=80?'rgba(16,185,129,.7)':r3>=60?'rgba(245,158,11,.7)':'rgba(239,68,68,.7)'; }),
+        borderRadius:4,
+      }]
+    },
+    options:{
+      ...CH_DEFAULTS,
+      indexAxis:'y',
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:ctx=>`${ctx.raw}%` } } },
+      scales:{
+        x:{ ...CH_DEFAULTS.scales.x, max:130, ticks:{ callback:v=>v+'%', color:'#7a8fa6', font:{size:10} } },
+        y:{ ...CH_DEFAULTS.scales.y },
+      }
+    }
+  });
+}
+
+// ═══ RENDER: DIVISION ════════════════════════════════════
+let curDivId = 'jzjz';
+function openDivision(divId) {
+  curDivId = divId;
+  const yr = parseInt(document.getElementById('year-sel').value);
+  const d = DIVS.find(x=>x.id===divId);
+  document.getElementById('div-detail-name').textContent = d.full;
+  document.getElementById('div-detail-year').textContent = yr+'年';
+  document.getElementById('nav-division').style.display='flex';
+  showView('division', document.getElementById('nav-division'));
+
+  // KPI cards
+  const el=document.getElementById('div-kpi-cards');
+  el.innerHTML='';
+  const clss=['k-contract','k-revenue','k-payment'];
+  METRICS.forEach((m,i)=>{
+    const a=ytdActual(divId,m,yr), t=ytdTarget(divId,m,yr), r2=rate(a,t);
+    const ann = yr===2026?TARGETS_2026[divId][m]:TARGETS_2025[divId][m];
+    const gap = ann - a;
+    el.innerHTML+=`
+    <div class="kpi-card ${clss[i]}">
+      <div class="kpi-label">${M_LABEL[m]}·YTD</div>
+      <div style="display:flex;align-items:baseline;gap:4px">
+        <div class="kpi-value">${fmt(a)}</div><div class="kpi-unit">万元</div>
+      </div>
+      <div class="kpi-meta">
+        <div class="kpi-rate ${rateClass(r2)}">${pct(r2)}</div>
+        <div class="kpi-yoy">年度目标 <span style="color:var(--text-pri)">${fmt(ann)}</span>万</div>
+      </div>
+      <div class="kpi-progress"><div class="kpi-bar" data-w="${Math.min(r2,100)}" style="width:0"></div></div>
+    </div>`;
+  });
+  setTimeout(()=>{ document.querySelectorAll('.kpi-bar[data-w]').forEach(b=>b.style.width=b.dataset.w+'%'); },50);
+
+  // Trend chart
+  destroyChart('div-trend');
+  const months=['1','2','3','4','5','6','7','8','9','10','11','12'];
+  const src = yr===2026?ACTUALS_2026[divId]:ACTUALS_2025[divId];
+  const annT = yr===2026?TARGETS_2026[divId]:TARGETS_2025[divId];
+  const tgtLine = METRICS.slice(0,1).map(m=> months.map((_,i)=>i<CUR_MONTH?Math.round(annT[m]/12):null));
+  const ctx2=document.getElementById('chart-div-trend').getContext('2d');
+  charts['div-trend']=new Chart(ctx2,{
+    type:'line',
+    data:{
+      labels:months.map(m=>m+'月'),
+      datasets:[
+        { label:'合同', data:src.contract, borderColor:'#3b82f6', backgroundColor:'rgba(59,130,246,.1)', tension:.4, pointRadius:3, fill:true },
+        { label:'收入', data:src.revenue.map((v,i)=>i<CUR_MONTH?v:null), borderColor:'#10b981', tension:.4, pointRadius:3 },
+        { label:'回款', data:src.payment.map((v,i)=>i<CUR_MONTH?v:null), borderColor:'#f0a500', tension:.4, pointRadius:3 },
+        { label:'合同目标', data:months.map((_,i)=>i<CUR_MONTH?Math.round(annT.contract/12):null), borderColor:'rgba(59,130,246,.4)', borderDash:[4,3], pointRadius:0, tension:0 },
+      ]
+    },
+    options:{ ...CH_DEFAULTS, plugins:{ legend:{ labels:{ color:'#7a8fa6', font:{size:11} } } } }
+  });
+
+  // Rate chart
+  destroyChart('div-rate');
+  const rates = months.map((_,i)=>{
+    if(i>=CUR_MONTH) return null;
+    const a2=src.contract[i], t2=annT.contract/12;
+    return rate(a2,t2).toFixed(1);
+  });
+  const ctx3=document.getElementById('chart-div-rate').getContext('2d');
+  charts['div-rate']=new Chart(ctx3,{
+    type:'bar',
+    data:{
+      labels:months.map(m=>m+'月'),
+      datasets:[{
+        label:'合同月度完成率',
+        data:rates,
+        backgroundColor:rates.map(r3=>r3===null?'transparent':parseFloat(r3)>=80?'rgba(16,185,129,.7)':parseFloat(r3)>=60?'rgba(245,158,11,.7)':'rgba(239,68,68,.7)'),
+        borderRadius:3,
+      }]
+    },
+    options:{
+      ...CH_DEFAULTS,
+      plugins:{
+        legend:{display:false},
+        annotation:{}
+      },
+      scales:{
+        x:{ ticks:{color:'#7a8fa6',font:{size:10}}, grid:{color:'rgba(30,42,56,.8)'} },
+        y:{ ticks:{callback:v=>v+'%',color:'#7a8fa6',font:{size:10}}, grid:{color:'rgba(30,42,56,.8)'}, suggestedMax:130 }
+      }
+    }
+  });
+
+  // Gap stat
+  const gapEl=document.getElementById('div-gap-stat');
+  gapEl.innerHTML='';
+  METRICS.forEach(m=>{
+    const a=ytdActual(divId,m,yr);
+    const ann = yr===2026?TARGETS_2026[divId][m]:TARGETS_2025[divId][m];
+    const gap=ann-a;
+    const rmonths=12-CUR_MONTH;
+    const perMo=rmonths>0?Math.round(gap/rmonths):0;
+    gapEl.innerHTML+=`
+    <div class="gap-row">
+      <div>
+        <div class="gap-metric">${M_LABEL[m]} · 目标缺口</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:2px">剩余${rmonths}月均需 <span style="color:var(--amber);font-family:var(--mono)">${fmt(perMo)}</span> 万元</div>
+      </div>
+      <div class="gap-val" style="color:${gap>0?'var(--red)':'var(--green)'}">${gap>0?'':'-'}${fmt(Math.abs(gap))} 万</div>
+    </div>`;
+  });
+
+  // Opp stat
+  const oppEl=document.getElementById('div-opp-stat');
+  oppEl.innerHTML='';
+  METRICS.forEach(m=>{
+    const opps=OPPORTUNITIES.filter(o=>o.div===d.full&&o.metric===M_LABEL[m]&&o.status==='进行中');
+    const sum=opps.reduce((s,o)=>s+o.amount,0);
+    const ann = yr===2026?TARGETS_2026[divId][m]:TARGETS_2025[divId][m];
+    const a2=ytdActual(divId,m,yr);
+    const gap2=ann-a2;
+    const cov=gap2>0?rate(sum,gap2):0;
+    oppEl.innerHTML+=`
+    <div class="gap-row">
+      <div>
+        <div class="gap-metric">${M_LABEL[m]} · 商机支撑</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:2px">共 ${opps.length} 条进行中商机</div>
+      </div>
+      <div class="gap-val" style="color:${cov>=100?'var(--green)':cov>=60?'var(--amber)':'var(--red)'}">${pct(cov)}</div>
+    </div>`;
+  });
+}
+
+// ═══ RENDER: OPPORTUNITY ════════════════════════════════
+function renderOpportunity() {
+  const active = OPPORTUNITIES.filter(o=>o.status==='进行中');
+  const total = active.reduce((s,o)=>s+o.amount,0);
+  document.getElementById('opp-total-val').textContent=fmt(total);
+  document.getElementById('opp-total-count').textContent=active.length;
+
+  // cover rate vs contract gap
+  const contractActual = DIVS.reduce((s,d)=>s+ytdActual(d.id,'contract'),0);
+  const contractTarget = DIVS.reduce((s,d)=>s+TARGETS_2026[d.id].contract,0);
+  const contractGap = contractTarget - contractActual;
+  const cover = contractGap>0 ? rate(total,contractGap) : 999;
+  document.getElementById('opp-cover-val').textContent=cover.toFixed(1);
+
+  const q1sum=OPPORTUNITIES.filter(o=>o.quarter==='Q1').reduce((s,o)=>s+o.amount,0);
+  document.getElementById('opp-q-val').textContent=fmt(q1sum);
+
+  // Funnel
+  const stages=['线索','立项','报价','签约跟进','已完成'];
+  const colors=['rgba(59,130,246,.7)','rgba(139,92,246,.7)','rgba(245,158,11,.7)','rgba(16,185,129,.7)','rgba(16,185,129,.9)'];
+  const maxAmt = Math.max(...stages.map(s=>OPPORTUNITIES.filter(o=>o.stage===s).reduce((a,o)=>a+o.amount,0)));
+  const funnelEl=document.getElementById('funnel-list');
+  funnelEl.innerHTML='';
+  stages.forEach((s,i)=>{
+    const items=OPPORTUNITIES.filter(o=>o.stage===s);
+    const sum=items.reduce((a,o)=>a+o.amount,0);
+    const w=maxAmt>0?Math.round(sum/maxAmt*100):0;
+    funnelEl.innerHTML+=`
+    <div class="funnel-item">
+      <div class="funnel-label">${s}</div>
+      <div class="funnel-bar-wrap">
+        <div class="funnel-bar" data-w="${w}" style="background:${colors[i]};width:0">
+          ${sum>0?fmt(sum)+'万':''}
+        </div>
+      </div>
+      <div class="funnel-count">${items.length}条</div>
+    </div>`;
+  });
+  setTimeout(()=>{ document.querySelectorAll('.funnel-bar[data-w]').forEach(b=>b.style.width=b.dataset.w+'%'); },50);
+
+  // Quarter chart
+  destroyChart('opp-quarter');
+  const qs=['Q1','Q2','Q3','Q4'];
+  const qColors=['rgba(59,130,246,.7)','rgba(16,185,129,.7)','rgba(245,158,11,.7)','rgba(239,68,68,.7)'];
+  const divDatasets=DIVS.map((d,di)=>({
+    label:d.name,
+    data:qs.map(q=>OPPORTUNITIES.filter(o=>o.div===d.full&&o.quarter===q).reduce((s,o)=>s+o.amount,0)),
+    backgroundColor:['rgba(59,130,246,.7)','rgba(16,185,129,.7)','rgba(245,158,11,.7)','rgba(139,92,246,.7)','rgba(239,68,68,.7)'][di],
+    borderRadius:3,
+  }));
+  const ctx4=document.getElementById('chart-opp-quarter').getContext('2d');
+  charts['opp-quarter']=new Chart(ctx4,{
+    type:'bar',
+    data:{ labels:qs, datasets:divDatasets },
+    options:{ ...CH_DEFAULTS, scales:{ x:{ stacked:true, ticks:{color:'#7a8fa6'}, grid:{color:'rgba(30,42,56,.8)'} }, y:{ stacked:true, ticks:{color:'#7a8fa6'}, grid:{color:'rgba(30,42,56,.8)'} } } }
+  });
+
+  // Table
+  const t=document.getElementById('opp-table');
+  const stageClass={线索:'s-lead',立项:'s-proj',报价:'s-quote',签约跟进:'s-track',已完成:'s-done'};
+  const statusCls={进行中:'ongoing',已赢单:'won',已输单:'lost',已搁置:'hold'};
+  t.innerHTML=`<thead><tr><th>商机名称</th><th>事业部</th><th>指标</th><th>季度</th><th>金额(万)</th><th>预计时间</th><th>阶段</th><th>状态</th></tr></thead>
+  <tbody>${OPPORTUNITIES.map(o=>`<tr>
+    <td>${o.name}</td><td>${o.div}</td><td>${o.metric}</td><td>${o.quarter}</td>
+    <td class="mono">${o.amount}</td><td class="mono">${o.date||'—'}</td>
+    <td><span class="stage-badge ${stageClass[o.stage]||''}">${o.stage}</span></td>
+    <td><span class="status-dot ${statusCls[o.status]||''}"></span>${o.status}</td>
+  </tr>`).join('')}</tbody>`;
+}
+
+// ═══ RENDER: TREND ══════════════════════════════════════
+function renderTrend() {
+  // Year bar
+  destroyChart('trend-year');
+  const yearData={
+    2025:DIVS.map(d=>ACTUALS_2025[d.id].contract.reduce((a,b)=>a+b,0)),
+    2026:DIVS.map(d=>ytdActual(d.id,'contract',2026)),
+  };
+  const ctx5=document.getElementById('chart-trend-year').getContext('2d');
+  charts['trend-year']=new Chart(ctx5,{
+    type:'bar',
+    data:{
+      labels:DIVS.map(d=>d.name),
+      datasets:[
+        { label:'2025年全年', data:yearData[2025], backgroundColor:'rgba(59,130,246,.45)', borderRadius:3 },
+        { label:'2026年YTD', data:yearData[2026], backgroundColor:'rgba(240,165,0,.7)', borderRadius:3 },
+      ]
+    },
+    options:{ ...CH_DEFAULTS }
+  });
+
+  // Monthly compare
+  destroyChart('trend-monthly');
+  const months=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+  const total25=months.map((_,i)=>DIVS.reduce((s,d)=>s+ACTUALS_2025[d.id].contract[i],0));
+  const total26=months.map((_,i)=>i<CUR_MONTH?DIVS.reduce((s,d)=>s+ACTUALS_2026[d.id].contract[i],0):null);
+  const ctx6=document.getElementById('chart-trend-monthly').getContext('2d');
+  charts['trend-monthly']=new Chart(ctx6,{
+    type:'line',
+    data:{
+      labels:months,
+      datasets:[
+        { label:'2025', data:total25, borderColor:'rgba(59,130,246,.7)', tension:.4, pointRadius:2, borderDash:[4,3] },
+        { label:'2026', data:total26, borderColor:'#f0a500', tension:.4, pointRadius:3, borderWidth:2 },
+      ]
+    },
+    options:{ ...CH_DEFAULTS }
+  });
+
+  // Growth rank
+  destroyChart('trend-rank');
+  const growths=DIVS.map(d=>{
+    const a25=ACTUALS_2025[d.id].contract.slice(0,CUR_MONTH).reduce((s,v)=>s+v,0);
+    const a26=ytdActual(d.id,'contract',2026);
+    return { name:d.name, g:a25>0?parseFloat(((a26-a25)/a25*100).toFixed(1)):0 };
+  }).sort((a,b)=>b.g-a.g);
+  const ctx7=document.getElementById('chart-trend-rank').getContext('2d');
+  charts['trend-rank']=new Chart(ctx7,{
+    type:'bar',
+    data:{
+      labels:growths.map(g=>g.name),
+      datasets:[{
+        label:'同比增长率%',
+        data:growths.map(g=>g.g),
+        backgroundColor:growths.map(g=>g.g>=0?'rgba(16,185,129,.7)':'rgba(239,68,68,.7)'),
+        borderRadius:4,
+      }]
+    },
+    options:{
+      ...CH_DEFAULTS,
+      indexAxis:'y',
+      plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>`${c.raw}%`}} },
+      scales:{ x:{ ticks:{callback:v=>v+'%',color:'#7a8fa6'}, grid:{color:'rgba(30,42,56,.8)'} }, y:{ ticks:{color:'#7a8fa6'}, grid:{color:'rgba(30,42,56,.8)'} } }
+    }
+  });
+
+  // Matrix table
+  const tbl=document.getElementById('trend-table');
+  let html=`<thead><tr><th>事业部</th><th>指标</th><th>2025全年</th><th>2026 YTD</th><th>同比增长</th></tr></thead><tbody>`;
+  DIVS.forEach(d=>{
+    METRICS.forEach((m,mi)=>{
+      const a25=ACTUALS_2025[d.id][m].reduce((s,v)=>s+v,0);
+      const a26ytd=ytdActual(d.id,m,2026);
+      const a25ytd=ACTUALS_2025[d.id][m].slice(0,CUR_MONTH).reduce((s,v)=>s+v,0);
+      const g=a25ytd>0?((a26ytd-a25ytd)/a25ytd*100):0;
+      const gc=g>0?'up':g<0?'down':'flat';
+      html+=`<tr>
+        ${mi===0?`<td rowspan="3" style="color:var(--text-pri);font-weight:500;border-right:1px solid var(--bg-border)">${d.name}</td>`:''}
+        <td>${M_LABEL[m]}</td>
+        <td>${fmt(a25)}</td>
+        <td>${fmt(a26ytd)}</td>
+        <td class="growth ${gc}">${g>=0?'+':''}${g.toFixed(1)}%</td>
+      </tr>`;
+    });
+  });
+  tbl.innerHTML=html+'</tbody>';
+}
+
+// ═══ RENDER: TARGETS ════════════════════════════════════
+function renderTargets() {
+  const yr = parseInt(document.getElementById('year-sel').value)||2026;
+  const src = yr===2026?TARGETS_2026:TARGETS_2025;
+  let html=`<div class="card-title">年度目标矩阵 · ${yr}年</div>
+  <table class="heatmap">
+    <thead><tr><th>事业部</th>${METRICS.map(m=>`<th>${M_LABEL[m]}目标(万)</th>`).join('')}</tr></thead>
+    <tbody>${DIVS.map(d=>`<tr>
+      <td><span style="font-weight:500;color:var(--text-pri)">${d.full}</span></td>
+      ${METRICS.map(m=>`<td style="font-family:var(--mono);color:var(--text-pri);text-align:center">${src[d.id][m].toLocaleString()}</td>`).join('')}
+    </tr>`).join('')}
+    <tr style="border-top:1px solid var(--bg-border)">
+      <td style="font-weight:600;color:var(--accent)">合计</td>
+      ${METRICS.map(m=>`<td style="font-family:var(--mono);color:var(--accent);text-align:center;font-weight:600">${DIVS.reduce((s,d)=>s+src[d.id][m],0).toLocaleString()}</td>`).join('')}
+    </tr>
+    </tbody>
+  </table>
+  <div style="margin-top:14px;display:flex;gap:8px">
+    <button style="background:var(--accent);color:#000;border:none;padding:7px 16px;border-radius:6px;cursor:pointer;font-weight:600;font-size:12px">↑ 批量导入</button>
+    <button style="background:var(--bg-border);color:var(--text-pri);border:none;padding:7px 16px;border-radius:6px;cursor:pointer;font-size:12px">↓ 下载模板</button>
+  </div>`;
+  document.getElementById('targets-card').innerHTML=html;
+}
+
+// ═══ RENDER: OPP MGMT ═══════════════════════════════════
+function renderOppMgmt() {
+  const t=document.getElementById('oppmgmt-table');
+  const stageClass={线索:'s-lead',立项:'s-proj',报价:'s-quote',签约跟进:'s-track',已完成:'s-done'};
+  const statusCls={进行中:'ongoing',已赢单:'won',已输单:'lost',已搁置:'hold'};
+  t.innerHTML=`<thead><tr><th>商机名称</th><th>事业部</th><th>指标</th><th>季度</th><th>金额(万)</th><th>预计时间</th><th>阶段</th><th>状态</th><th>操作</th></tr></thead>
+  <tbody>${OPPORTUNITIES.map(o=>`<tr>
+    <td>${o.name}</td><td>${o.div}</td><td>${o.metric}</td><td>${o.quarter}</td>
+    <td class="mono">${o.amount}</td><td class="mono">${o.date||'—'}</td>
+    <td><span class="stage-badge ${stageClass[o.stage]||''}">${o.stage}</span></td>
+    <td><span class="status-dot ${statusCls[o.status]||''}"></span>${o.status}</td>
+    <td><span style="color:var(--accent);cursor:pointer;font-size:11px">编辑</span> &nbsp; <span style="color:var(--red);cursor:pointer;font-size:11px">删除</span></td>
+  </tr>`).join('')}</tbody>`;
+}
+
+// ═══ INIT ════════════════════════════════════════════════
+renderOverview();
+</script>
+</body>
+</html>

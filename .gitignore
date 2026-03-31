@@ -32,3 +32,10 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Temp scripts
+inspect_excel*.py
+
+# Business data files (upload separately)
+*.xlsx
+!商机导入模板.xlsx
