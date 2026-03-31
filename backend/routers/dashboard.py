@@ -261,31 +261,6 @@ def opportunity_support(
     ).all()
     q_actual_map = {(r.business_unit_id, r.metric_type): r.total or 0.0 for r in q_rows}
 
-    # 季度目标 = 年度目标 × 季度权重（或月度分解之和）
-    def _q_tgt_total(metric):
-        total = 0.0
-        units_all = session.exec(select(BusinessUnit)).all()
-        for u in units_all:
-            at = session.exec(
-                select(AnnualTarget).where(
-                    AnnualTarget.year == year,
-                    AnnualTarget.business_unit_id == u.id,
-                    AnnualTarget.metric_type == metric,
-                )
-            ).first()
-            if at:
-                mt_rows = session.exec(
-                    select(MonthlyTarget).where(
-                        MonthlyTarget.annual_target_id == at.id,
-                        MonthlyTarget.month.in_(q_months),
-                    )
-                ).all()
-                if mt_rows and any(mt.target_amount > 0 for mt in mt_rows):
-                    total += sum(mt.target_amount for mt in mt_rows)
-                    continue
-            total += ann_t.get((u.id, metric), 0.0) * _QUARTER_WEIGHT[quarter]
-        return total
-
     # 该季度商机
     q_opps = session.exec(
         select(Opportunity).where(
@@ -296,15 +271,36 @@ def opportunity_support(
     units = session.exec(select(BusinessUnit).order_by(BusinessUnit.sort_order)).all()
     STAGES = ["线索", "立项", "报价", "签约跟进", "已完成"]
 
+    def _div_q_target(unit_id, metric):
+        """单个事业部某指标的季度目标。"""
+        at = session.exec(
+            select(AnnualTarget).where(
+                AnnualTarget.year == year,
+                AnnualTarget.business_unit_id == unit_id,
+                AnnualTarget.metric_type == metric,
+            )
+        ).first()
+        if at:
+            mt_rows = session.exec(
+                select(MonthlyTarget).where(
+                    MonthlyTarget.annual_target_id == at.id,
+                    MonthlyTarget.month.in_(q_months),
+                )
+            ).all()
+            if mt_rows and any(mt.target_amount > 0 for mt in mt_rows):
+                return sum(mt.target_amount for mt in mt_rows)
+        annual = ann_t.get((unit_id, metric), 0.0)
+        return round(annual * _QUARTER_WEIGHT[quarter], 2)
+
     metrics_data = {}
     for metric in METRICS:
         q_actual_sum = sum(v for (_, m), v in q_actual_map.items() if m == metric)
-        q_tgt = _q_tgt_total(metric)
+        q_tgt = sum(_div_q_target(u.id, metric) for u in units)
         gap = max(q_tgt - q_actual_sum, 0)
 
         active = [o for o in q_opps if o.metric_type == metric and o.status == "进行中"]
         opp_total = sum(o.estimated_amount for o in active)
-        cover_rate = round(opp_total / gap * 100, 1) if gap else 999.0
+        cover_rate = round(opp_total / q_tgt * 100, 1) if q_tgt else 0.0
 
         metric_opps = [o for o in q_opps if o.metric_type == metric]
         funnel = []
@@ -316,12 +312,19 @@ def opportunity_support(
                 "total_amount": sum(o.estimated_amount for o in items),
             })
 
-        # 事业部分布
-        div_dist = {}
-        for opp in metric_opps:
-            u = next((u for u in units if u.id == opp.business_unit_id), None)
-            name = u.name if u else str(opp.business_unit_id)
-            div_dist[name] = div_dist.get(name, 0) + opp.estimated_amount
+        # 按事业部统计覆盖率（进行中商机 / 季度目标）
+        div_coverage = []
+        for u in units:
+            u_tgt = _div_q_target(u.id, metric)
+            u_active = [o for o in active if o.business_unit_id == u.id]
+            u_opp = sum(o.estimated_amount for o in u_active)
+            u_rate = round(u_opp / u_tgt * 100, 1) if u_tgt else 0.0
+            div_coverage.append({
+                "name": u.name,
+                "opp_total": u_opp,
+                "quarter_target": u_tgt,
+                "cover_rate": u_rate,
+            })
 
         metrics_data[metric] = {
             "quarter_actual": q_actual_sum,
@@ -330,7 +333,7 @@ def opportunity_support(
             "opp_active_total": opp_total,
             "cover_rate": cover_rate,
             "funnel": funnel,
-            "div_dist": div_dist,
+            "div_coverage": div_coverage,
             "count": len(metric_opps),
         }
 
