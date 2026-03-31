@@ -40,7 +40,7 @@ onMounted(async () => {
     <aside class="sidebar">
       <div class="sidebar-logo">
         <div class="logo-en">INSIGHT</div>
-        <div class="logo-zh">经营分析系统</div>
+        <div class="logo-zh">经营分析智能体</div>
       </div>
       <nav class="sidebar-nav">
         <template v-for="group in navItems" :key="group.group">

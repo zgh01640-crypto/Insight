@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import init_db
 from routers import targets, actuals, opportunities, dashboard, imports, ai
 
-app = FastAPI(title="Insight 经营分析", version="1.0.0")
+app = FastAPI(title="Insight 经营分析智能体", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,

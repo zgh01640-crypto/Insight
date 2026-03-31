@@ -136,7 +136,7 @@ def chat(req: ChatRequest, session: Session = Depends(get_session)):
     cur_year = req.year or date.today().year
     cur_month = date.today().month
 
-    system_prompt = f"""你是产品中心的经营分析助理，帮助产品中心负责人快速了解业务运营情况。
+    system_prompt = f"""你是产品中心经营分析智能体，帮助产品中心负责人快速了解业务运营情况。
 
 当前时间：{cur_year}年{cur_month}月
 产品中心下辖4个事业部（ID对应关系）：
