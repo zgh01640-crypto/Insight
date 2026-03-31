@@ -9,6 +9,9 @@ services:
       - insight-db:/app/data    # persistent DB
     environment:
       - DATABASE_URL=sqlite:///./data/insight.db
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.deepseek.com}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
     ports:
       - "8010:8000"
     restart: unless-stopped

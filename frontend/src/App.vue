@@ -3,6 +3,7 @@ import { onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { getUnits } from '@/api'
+import AIChat from '@/components/AIChat.vue'
 
 const route  = useRoute()
 const store  = useAppStore()
@@ -88,6 +89,7 @@ onMounted(async () => {
         </router-view>
       </div>
     </div>
+    <AIChat />
   </div>
 </template>
 
