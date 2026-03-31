@@ -13,6 +13,20 @@ router = APIRouter()
 
 METRICS = ["contract", "revenue", "payment"]
 
+# 季度分配比例 2:3:3:2，月度 = 季度/3
+# Q1=20%, Q2=30%, Q3=30%, Q4=20%
+_Q_WEIGHTS = [0.2/3] * 3 + [0.3/3] * 3 + [0.3/3] * 3 + [0.2/3] * 3  # 12个月
+
+
+def _monthly_targets(annual: float) -> list:
+    """按 2:3:3:2 季度比例分解年度目标到12个月。"""
+    return [round(annual * w, 2) for w in _Q_WEIGHTS]
+
+
+def _ytd_weight(cur_month: int) -> float:
+    """1~cur_month 的累计权重（cur_month 为1-12）。"""
+    return sum(_Q_WEIGHTS[:cur_month])
+
 
 def _cur_month() -> int:
     return date.today().month
@@ -46,14 +60,14 @@ def _ytd_target(session: Session, year: int, cur_month: int) -> dict:
     ).all()
     result = {(r.business_unit_id, r.metric_type): r.total or 0.0 for r in rows}
 
-    # Fallback: if no monthly breakdown, use prorated annual target
+    # Fallback: if no monthly breakdown, use 2:3:3:2 quarterly distribution
     at_rows = session.exec(
         select(AnnualTarget).where(AnnualTarget.year == year)
     ).all()
     for at in at_rows:
         key = (at.business_unit_id, at.metric_type)
         if key not in result:
-            result[key] = round(at.target_amount / 12 * cur_month, 2)
+            result[key] = round(at.target_amount * _ytd_weight(cur_month), 2)
     return result
 
 
@@ -160,8 +174,8 @@ def division_detail(
                 for mt in mt_rows:
                     monthly_target[mt.month - 1] = mt.target_amount
             else:
-                # fallback: even distribution
-                monthly_target = [round(at.target_amount / 12, 2)] * 12
+                # fallback: 2:3:3:2 quarterly distribution
+                monthly_target = _monthly_targets(at.target_amount)
 
         actual   = ytd_a.get((div_id, metric), 0.0)
         target   = ytd_t.get((div_id, metric), 0.0)

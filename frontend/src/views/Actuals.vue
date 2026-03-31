@@ -1,17 +1,37 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { importActuals, importTargets, importOpps, getImportHistory, getBatchFailures } from '@/api'
-import { ElMessage } from 'element-plus'
+import { importActuals, importTargets, importOpps, getImportHistory, getBatchFailures, getActuals, deleteActual } from '@/api'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { useAppStore } from '@/stores/app'
 
+const store    = useAppStore()
 const history  = ref([])
 const uploading = ref(false)
-const TYPE_LABEL = { annual_target: '年度目标', monthly_actual: '月度完成', opportunity: '商机' }
+const actuals  = ref([])
+const aLoading = ref(false)
+const aFilter  = ref({ year: new Date().getFullYear(), month: '', business_unit_id: '' })
+
+const TYPE_LABEL   = { annual_target: '年度目标', monthly_actual: '月度完成', opportunity: '商机' }
+const METRIC_LABEL = { contract: '合同', revenue: '收入', payment: '回款' }
+const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1)
 
 async function loadHistory() {
   const res = await getImportHistory()
   history.value = res?.data || []
 }
-onMounted(loadHistory)
+
+async function loadActuals() {
+  aLoading.value = true
+  const params = {}
+  if (aFilter.value.year)             params.year = aFilter.value.year
+  if (aFilter.value.month)            params.month = aFilter.value.month
+  if (aFilter.value.business_unit_id) params.business_unit_id = aFilter.value.business_unit_id
+  const res = await getActuals(params)
+  actuals.value = res?.data || []
+  aLoading.value = false
+}
+
+onMounted(() => { loadHistory(); loadActuals() })
 
 async function handleUpload(file, type) {
   uploading.value = true
@@ -19,6 +39,7 @@ async function handleUpload(file, type) {
   const res = await fn(file.raw || file)
   ElMessage({ type: res.success ? 'success' : 'warning', message: res.message })
   await loadHistory()
+  await loadActuals()
   uploading.value = false
   return false
 }
@@ -28,6 +49,16 @@ async function showFailures(row) {
   const res = await getBatchFailures(row.id)
   const rows = res?.data || []
   ElMessage({ message: rows.map(r => `第${r.row}行: ${r.reason}`).join('\n'), type: 'warning', duration: 0, showClose: true })
+}
+
+async function delActual(row) {
+  await ElMessageBox.confirm(
+    `确定删除「${row.business_unit_name} · ${row.year}年${row.month}月 · ${METRIC_LABEL[row.metric_type] || row.metric_type}」？`,
+    '删除确认', { type: 'warning' }
+  )
+  await deleteActual(row.id)
+  ElMessage.success('已删除')
+  loadActuals()
 }
 </script>
 
@@ -51,6 +82,41 @@ async function showFailures(row) {
       </div>
     </div>
 
+    <!-- 月度数据管理 -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-title">月度完成数据管理</div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <el-select v-model="aFilter.year" size="small" style="width:90px" @change="loadActuals">
+          <el-option v-for="y in [2026,2025,2024]" :key="y" :value="y" :label="y+'年'" />
+        </el-select>
+        <el-select v-model="aFilter.month" size="small" style="width:90px" clearable placeholder="全部月份" @change="loadActuals">
+          <el-option v-for="m in MONTHS" :key="m" :value="m" :label="m+'月'" />
+        </el-select>
+        <el-select v-model="aFilter.business_unit_id" size="small" style="width:150px" clearable placeholder="全部事业部" @change="loadActuals">
+          <el-option v-for="u in store.units" :key="u.id" :value="u.id" :label="u.name" />
+        </el-select>
+      </div>
+      <el-table :data="actuals" size="small" v-loading="aLoading" element-loading-background="transparent">
+        <el-table-column prop="year"               label="年份"   width="70"  align="center" />
+        <el-table-column prop="month"              label="月份"   width="70"  align="center">
+          <template #default="{ row }">{{ row.month }}月</template>
+        </el-table-column>
+        <el-table-column prop="business_unit_name" label="事业部" min-width="130" />
+        <el-table-column prop="metric_type"        label="指标"   width="80"  align="center">
+          <template #default="{ row }">{{ METRIC_LABEL[row.metric_type] || row.metric_type }}</template>
+        </el-table-column>
+        <el-table-column prop="actual_amount"      label="完成值(万)" width="110" align="right">
+          <template #default="{ row }"><span style="font-family:var(--mono)">{{ row.actual_amount.toLocaleString() }}</span></template>
+        </el-table-column>
+        <el-table-column label="操作" width="80" align="center">
+          <template #default="{ row }">
+            <el-button link size="small" type="danger" @click="delActual(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <!-- 导入历史 -->
     <div class="card">
       <div class="card-title">导入历史</div>
       <el-table :data="history" size="small">
