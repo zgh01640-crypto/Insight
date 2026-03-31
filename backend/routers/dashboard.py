@@ -222,46 +222,58 @@ def opportunity_support(
     ytd_a = _ytd_actual(session, year, cur_month)
     ann_t = _annual_targets(session, year)
 
-    contract_actual  = sum(v for (_, m), v in ytd_a.items() if m == "contract")
-    contract_annual  = sum(v for (_, m), v in ann_t.items() if m == "contract")
-    contract_gap     = max(contract_annual - contract_actual, 0)
-
-    # Active opps
-    active_opps = session.exec(
-        select(Opportunity).where(Opportunity.year == year, Opportunity.status == "进行中")
-    ).all()
-    opp_total = sum(o.estimated_amount for o in active_opps)
-    cover_rate = round(opp_total / contract_gap * 100, 1) if contract_gap else 999.0
-
-    # Funnel
-    STAGES = ["线索", "立项", "报价", "签约跟进", "已完成"]
     all_opps = session.exec(
         select(Opportunity).where(Opportunity.year == year)
     ).all()
-    funnel = []
-    for stage in STAGES:
-        items = [o for o in all_opps if o.stage == stage]
-        funnel.append({
-            "stage": stage,
-            "count": len(items),
-            "total_amount": sum(o.estimated_amount for o in items),
-        })
-
-    # Quarterly distribution per division
     units = session.exec(select(BusinessUnit).order_by(BusinessUnit.sort_order)).all()
-    quarterly = {q: {} for q in ["Q1", "Q2", "Q3", "Q4"]}
-    for opp in all_opps:
-        unit = next((u for u in units if u.id == opp.business_unit_id), None)
-        name = unit.name if unit else str(opp.business_unit_id)
-        quarterly[opp.quarter][name] = quarterly[opp.quarter].get(name, 0) + opp.estimated_amount
+
+    STAGES = ["线索", "立项", "报价", "签约跟进", "已完成"]
+
+    metrics_data = {}
+    for metric in METRICS:
+        # Gap for this metric (all units combined)
+        actual_sum = sum(v for (_, m), v in ytd_a.items() if m == metric)
+        annual_sum = sum(v for (_, m), v in ann_t.items() if m == metric)
+        gap = max(annual_sum - actual_sum, 0)
+
+        # Active opps for this metric only
+        active = [o for o in all_opps if o.metric_type == metric and o.status == "进行中"]
+        opp_total = sum(o.estimated_amount for o in active)
+        cover_rate = round(opp_total / gap * 100, 1) if gap else 999.0
+
+        # Funnel for this metric
+        metric_opps = [o for o in all_opps if o.metric_type == metric]
+        funnel = []
+        for stage in STAGES:
+            items = [o for o in metric_opps if o.stage == stage]
+            funnel.append({
+                "stage": stage,
+                "count": len(items),
+                "total_amount": sum(o.estimated_amount for o in items),
+            })
+
+        # Quarterly distribution for this metric
+        quarterly = {q: {} for q in ["Q1", "Q2", "Q3", "Q4"]}
+        for opp in metric_opps:
+            unit = next((u for u in units if u.id == opp.business_unit_id), None)
+            name = unit.name if unit else str(opp.business_unit_id)
+            quarterly[opp.quarter][name] = quarterly[opp.quarter].get(name, 0) + opp.estimated_amount
+
+        metrics_data[metric] = {
+            "ytd_actual": actual_sum,
+            "annual_target": annual_sum,
+            "gap": gap,
+            "opp_active_total": opp_total,
+            "cover_rate": cover_rate,
+            "funnel": funnel,
+            "quarterly": quarterly,
+            "count": len(metric_opps),
+        }
 
     return ApiResponse(data={
         "year": year,
-        "contract_gap": contract_gap,
-        "opp_active_total": opp_total,
-        "cover_rate": cover_rate,
-        "funnel": funnel,
-        "quarterly": quarterly,
+        "cur_month": cur_month,
+        "metrics": metrics_data,
         "total_count": len(all_opps),
     })
 

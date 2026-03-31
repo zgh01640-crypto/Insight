@@ -9,9 +9,13 @@ import { CanvasRenderer } from 'echarts/renderers'
 import VChart from 'vue-echarts'
 use([BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
-const store   = useAppStore()
-const loading = ref(false)
-const data    = ref(null)
+const store        = useAppStore()
+const loading      = ref(false)
+const data         = ref(null)
+const activeMetric = ref('contract')
+
+const METRIC_LABEL = { contract: '合同', revenue: '收入', payment: '回款' }
+const METRICS      = ['contract', 'revenue', 'payment']
 
 async function load() {
   loading.value = true
@@ -22,12 +26,23 @@ async function load() {
 onMounted(load)
 watch(() => store.year, load)
 
-const funnelMax = computed(() => data.value ? Math.max(...data.value.funnel.map(f => f.total_amount), 1) : 1)
+const EMPTY_METRIC = { ytd_actual: 0, annual_target: 0, gap: 0, opp_active_total: 0, cover_rate: 0, funnel: [], quarterly: { Q1:{}, Q2:{}, Q3:{}, Q4:{} }, count: 0 }
+
+const cur = computed(() =>
+  data.value?.metrics?.[activeMetric.value] ?? EMPTY_METRIC
+)
+
+// Safe per-metric accessor — always returns a complete object
+const safeMetric = (m) => data.value?.metrics?.[m] || EMPTY_METRIC
+
+const funnelMax = computed(() =>
+  cur.value ? Math.max(...cur.value.funnel.map(f => f.total_amount), 1) : 1
+)
 
 const quarterOption = computed(() => {
-  if (!data.value) return {}
   const qs = ['Q1','Q2','Q3','Q4']
   const divNames = store.units.map(u => u.name)
+  const quarterly = cur.value?.quarterly || { Q1:{}, Q2:{}, Q3:{}, Q4:{} }
   const colors = ['rgba(59,130,246,.7)', 'rgba(16,185,129,.7)', 'rgba(245,158,11,.7)', 'rgba(139,92,246,.7)', 'rgba(239,68,68,.7)']
   return {
     backgroundColor: 'transparent',
@@ -38,56 +53,98 @@ const quarterOption = computed(() => {
     yAxis: { type: 'value', axisLabel: { color: '#7a8fa6', fontSize: 10 }, splitLine: { lineStyle: { color: '#1e2a38' } } },
     series: divNames.map((name, i) => ({
       name, type: 'bar', stack: 'total', barMaxWidth: 40,
-      data: qs.map(q => data.value.quarterly[q]?.[name] || 0),
+      data: qs.map(q => Number(quarterly[q]?.[name] || 0)),
       itemStyle: { color: colors[i], borderRadius: i === divNames.length - 1 ? [3,3,0,0] : [0,0,0,0] }
     }))
   }
 })
 
 const STAGE_COLORS = { '线索': '#3b82f6', '立项': '#8b5cf6', '报价': '#f59e0b', '签约跟进': '#10b981', '已完成': '#34d399' }
+
+function rateColor(r) { return r >= 100 ? 'var(--green)' : r >= 60 ? 'var(--amber)' : 'var(--red)' }
+function fmt(n) {
+  const v = Number(n)
+  return isNaN(v) ? '—' : v.toLocaleString('zh-CN')
+}
 </script>
 
 <template>
   <div v-loading="loading" element-loading-background="transparent">
-    <div class="section-header"><span class="section-title">商机支撑分析</span><span class="section-sub">{{ store.year }}年 · 全中心</span></div>
+    <div class="section-header">
+      <span class="section-title">商机支撑分析</span>
+      <span class="section-sub">{{ store.year }}年 · 全中心</span>
+      <el-radio-group v-model="activeMetric" size="small" style="margin-left:16px">
+        <el-radio-button v-for="m in METRICS" :key="m" :value="m">{{ METRIC_LABEL[m] }}</el-radio-button>
+      </el-radio-group>
+    </div>
 
-    <div class="kpi-grid" v-if="data" style="margin-bottom:14px">
-      <div class="kpi-card k-contract">
-        <div class="kpi-label">进行中商机总金额</div>
-        <div class="kpi-row"><span class="kpi-value">{{ data.opp_active_total.toLocaleString() }}</span><span class="kpi-unit">万元</span></div>
-        <div class="kpi-meta"><span class="kpi-yoy">共 <b>{{ data.total_count }}</b> 条商机</span></div>
-      </div>
-      <div class="kpi-card k-revenue">
-        <div class="kpi-label">合同缺口覆盖率</div>
-        <div class="kpi-row"><span class="kpi-value" :class="data.cover_rate >= 100 ? 'text-green' : data.cover_rate >= 60 ? 'text-amber' : 'text-red'">{{ data.cover_rate >= 999 ? '100+' : data.cover_rate }}</span><span class="kpi-unit">%</span></div>
-        <div class="kpi-meta"><span class="kpi-yoy">商机金额 / 合同缺口</span></div>
-      </div>
-      <div class="kpi-card k-payment">
-        <div class="kpi-label">合同年度缺口</div>
-        <div class="kpi-row"><span class="kpi-value">{{ data.contract_gap.toLocaleString() }}</span><span class="kpi-unit">万元</span></div>
-        <div class="kpi-meta"><span class="kpi-yoy">年度目标 - YTD完成</span></div>
+    <!-- 三指标概览行 -->
+    <div class="metric-overview" v-if="data && data.metrics" style="margin-bottom:14px">
+      <div
+        v-for="m in METRICS" :key="m"
+        class="metric-card"
+        :class="{ active: activeMetric === m }"
+        @click="activeMetric = m"
+      >
+        <div class="mc-label">{{ METRIC_LABEL[m] }}</div>
+        <div class="mc-row">
+          <span class="mc-rate" :style="{ color: rateColor(safeMetric(m).cover_rate) }">
+            {{ safeMetric(m).cover_rate >= 999 ? '100+' : safeMetric(m).cover_rate }}%
+          </span>
+          <span class="mc-sub">覆盖率</span>
+        </div>
+        <div class="mc-gap">缺口 <span class="mono">{{ fmt(safeMetric(m).gap) }}</span> 万</div>
+        <div class="mc-opp">商机 <span class="mono">{{ fmt(safeMetric(m).opp_active_total) }}</span> 万（{{ safeMetric(m).count }}条）</div>
       </div>
     </div>
 
-    <div class="two-col" style="margin-bottom:14px" v-if="data">
-      <div class="card">
-        <div class="card-title">商机阶段漏斗</div>
-        <div class="funnel-list">
-          <div v-for="f in data.funnel" :key="f.stage" class="funnel-item">
-            <span class="funnel-label">{{ f.stage }}</span>
-            <div class="funnel-track">
-              <div
-                class="funnel-bar"
-                :style="{ width: (f.total_amount / funnelMax * 100) + '%', background: STAGE_COLORS[f.stage] }"
-              >{{ f.total_amount > 0 ? f.total_amount.toLocaleString() + '万' : '' }}</div>
-            </div>
-            <span class="funnel-count">{{ f.count }}条</span>
+    <!-- 详细面板（按当前选中指标）-->
+    <div v-if="data && data.metrics">
+      <!-- KPI -->
+      <div class="kpi-grid" style="margin-bottom:14px">
+        <div class="kpi-card k-contract">
+          <div class="kpi-label">{{ METRIC_LABEL[activeMetric] }} 进行中商机</div>
+          <div class="kpi-row"><span class="kpi-value">{{ fmt(cur.opp_active_total) }}</span><span class="kpi-unit">万元</span></div>
+          <div class="kpi-meta"><span class="kpi-yoy">共 <b>{{ cur.count }}</b> 条商机</span></div>
+        </div>
+        <div class="kpi-card k-revenue">
+          <div class="kpi-label">{{ METRIC_LABEL[activeMetric] }} 缺口覆盖率</div>
+          <div class="kpi-row">
+            <span class="kpi-value" :style="{ color: rateColor(cur.cover_rate) }">
+              {{ cur.cover_rate >= 999 ? '100+' : cur.cover_rate }}
+            </span>
+            <span class="kpi-unit">%</span>
           </div>
+          <div class="kpi-meta"><span class="kpi-yoy">进行中商机 / 目标缺口</span></div>
+        </div>
+        <div class="kpi-card k-payment">
+          <div class="kpi-label">{{ METRIC_LABEL[activeMetric] }} 年度缺口</div>
+          <div class="kpi-row"><span class="kpi-value">{{ fmt(cur.gap) }}</span><span class="kpi-unit">万元</span></div>
+          <div class="kpi-meta"><span class="kpi-yoy">年度目标 {{ fmt(cur.annual_target) }} · YTD {{ fmt(cur.ytd_actual) }}</span></div>
         </div>
       </div>
-      <div class="card">
-        <div class="card-title">季度商机分布</div>
-        <v-chart :option="quarterOption" style="height:220px" autoresize />
+
+      <!-- 漏斗 + 季度分布 -->
+      <div class="two-col">
+        <div class="card">
+          <div class="card-title">{{ METRIC_LABEL[activeMetric] }} · 商机阶段漏斗</div>
+          <div class="funnel-list">
+            <div v-for="f in cur.funnel" :key="f.stage" class="funnel-item">
+              <span class="funnel-label">{{ f.stage }}</span>
+              <div class="funnel-track">
+                <div
+                  class="funnel-bar"
+                  :style="{ width: (f.total_amount / funnelMax * 100) + '%', background: STAGE_COLORS[f.stage] }"
+                >{{ f.total_amount > 0 ? fmt(f.total_amount) + '万' : '' }}</div>
+              </div>
+              <span class="funnel-count">{{ f.count }}条</span>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">{{ METRIC_LABEL[activeMetric] }} · 季度商机分布</div>
+          <v-chart :option="quarterOption" style="height:220px" autoresize />
+        </div>
       </div>
     </div>
 
@@ -96,9 +153,27 @@ const STAGE_COLORS = { '线索': '#3b82f6', '立项': '#8b5cf6', '报价': '#f59
 </template>
 
 <style scoped>
-.section-header { display:flex; align-items:baseline; gap:10px; margin-bottom:16px; }
+.section-header { display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
 .section-title { font-size:16px; font-weight:600; }
 .section-sub { font-size:12px; color:var(--text-sec); }
+
+/* 三指标概览 */
+.metric-overview { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+.metric-card {
+  background:var(--bg-card); border:1px solid var(--bg-border);
+  border-radius:10px; padding:14px 16px; cursor:pointer;
+  transition: border-color .15s;
+}
+.metric-card:hover { border-color: var(--accent); }
+.metric-card.active { border-color: var(--accent); background: rgba(240,165,0,.06); }
+.mc-label { font-size:11px; color:var(--text-sec); margin-bottom:6px; letter-spacing:1px; }
+.mc-row { display:flex; align-items:baseline; gap:6px; margin-bottom:4px; }
+.mc-rate { font-family:var(--mono); font-size:22px; font-weight:700; }
+.mc-sub { font-size:11px; color:var(--text-sec); }
+.mc-gap { font-size:11px; color:var(--text-sec); margin-top:2px; }
+.mc-opp { font-size:11px; color:var(--text-dim); margin-top:1px; }
+
+/* KPI */
 .kpi-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
 .kpi-card { background:var(--bg-card); border:1px solid var(--bg-border); border-radius:10px; padding:16px 18px; position:relative; overflow:hidden; }
 .kpi-card::after { content:''; position:absolute; top:0; left:0; right:0; height:2px; }
@@ -108,7 +183,7 @@ const STAGE_COLORS = { '线索': '#3b82f6', '立项': '#8b5cf6', '报价': '#f59
 .kpi-value { font-family:var(--mono); font-size:26px; font-weight:700; }
 .kpi-unit { font-size:12px; color:var(--text-sec); }
 .kpi-meta { margin-top:8px; font-size:11px; color:var(--text-sec); }
-.text-green { color:var(--green); } .text-amber { color:var(--amber); } .text-red { color:var(--red); }
+
 .card { background:var(--bg-card); border:1px solid var(--bg-border); border-radius:10px; padding:18px 20px; }
 .card-title { font-size:11px; letter-spacing:1.5px; color:var(--text-sec); text-transform:uppercase; margin-bottom:14px; display:flex; align-items:center; gap:8px; }
 .card-title::before { content:''; display:block; width:3px; height:12px; border-radius:2px; background:var(--accent); }
@@ -119,4 +194,5 @@ const STAGE_COLORS = { '线索': '#3b82f6', '立项': '#8b5cf6', '报价': '#f59
 .funnel-track { flex:1; background:var(--bg-border); border-radius:3px; height:24px; overflow:hidden; }
 .funnel-bar { height:100%; border-radius:3px; display:flex; align-items:center; padding-left:8px; font-family:var(--mono); font-size:11px; font-weight:600; color:#000; transition:width 1s ease; min-width:2%; }
 .funnel-count { width:36px; text-align:right; font-family:var(--mono); font-size:11px; color:var(--text-sec); }
+.mono { font-family:var(--mono); }
 </style>
