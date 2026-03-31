@@ -9,7 +9,9 @@ const store  = useAppStore()
 
 const navItems = [
   { group: '看板', items: [
-    { path: '/overview',    label: '总览仪表盘',    icon: 'DataAnalysis' },
+    { path: '/overview',    label: '年度仪表盘',    icon: 'DataAnalysis' },
+    { path: '/quarter',     label: '季度仪表盘',    icon: 'Calendar' },
+    { path: '/monthly',     label: '月度仪表盘',    icon: 'Histogram' },
     { path: '/opportunity', label: '商机支撑分析',  icon: 'TrendCharts' },
     { path: '/trend',       label: '同比趋势分析',  icon: 'DataLine' },
   ]},

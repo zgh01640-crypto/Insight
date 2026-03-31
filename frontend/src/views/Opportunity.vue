@@ -13,49 +13,55 @@ const store        = useAppStore()
 const loading      = ref(false)
 const data         = ref(null)
 const activeMetric = ref('contract')
+const quarter      = ref('Q1')
 
 const METRIC_LABEL = { contract: '合同', revenue: '收入', payment: '回款' }
 const METRICS      = ['contract', 'revenue', 'payment']
+const QUARTERS     = ['Q1', 'Q2', 'Q3', 'Q4']
+
+// 默认当前季度
+const m0 = new Date().getMonth() + 1
+quarter.value = m0 <= 3 ? 'Q1' : m0 <= 6 ? 'Q2' : m0 <= 9 ? 'Q3' : 'Q4'
 
 async function load() {
   loading.value = true
-  const res = await getOppSupport(store.year)
+  const res = await getOppSupport(store.year, quarter.value)
   data.value = res?.data || null
   loading.value = false
 }
 onMounted(load)
-watch(() => store.year, load)
+watch([() => store.year, quarter], load)
 
-const EMPTY_METRIC = { ytd_actual: 0, annual_target: 0, gap: 0, opp_active_total: 0, cover_rate: 0, funnel: [], quarterly: { Q1:{}, Q2:{}, Q3:{}, Q4:{} }, count: 0 }
+const EMPTY_METRIC = { quarter_actual: 0, quarter_target: 0, gap: 0, opp_active_total: 0, cover_rate: 0, funnel: [], div_dist: {}, count: 0 }
 
 const cur = computed(() =>
   data.value?.metrics?.[activeMetric.value] ?? EMPTY_METRIC
 )
 
-// Safe per-metric accessor — always returns a complete object
 const safeMetric = (m) => data.value?.metrics?.[m] || EMPTY_METRIC
 
 const funnelMax = computed(() =>
   cur.value ? Math.max(...cur.value.funnel.map(f => f.total_amount), 1) : 1
 )
 
-const quarterOption = computed(() => {
-  const qs = ['Q1','Q2','Q3','Q4']
-  const divNames = store.units.map(u => u.name)
-  const quarterly = cur.value?.quarterly || { Q1:{}, Q2:{}, Q3:{}, Q4:{} }
-  const colors = ['rgba(59,130,246,.7)', 'rgba(16,185,129,.7)', 'rgba(245,158,11,.7)', 'rgba(139,92,246,.7)', 'rgba(239,68,68,.7)']
+// 事业部商机分布横向柱图
+const divBarOption = computed(() => {
+  const dist  = cur.value?.div_dist || {}
+  const names = Object.keys(dist)
+  const vals  = Object.values(dist)
+  if (!names.length) return {}
+  const maxVal = Math.max(...vals, 1)
   return {
     backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    legend: { textStyle: { color: '#7a8fa6', fontSize: 10 }, top: 0 },
-    grid: { left: 40, right: 20, top: 30, bottom: 20 },
-    xAxis: { type: 'category', data: qs, axisLabel: { color: '#7a8fa6' }, splitLine: { show: false } },
-    yAxis: { type: 'value', axisLabel: { color: '#7a8fa6', fontSize: 10 }, splitLine: { lineStyle: { color: '#1e2a38' } } },
-    series: divNames.map((name, i) => ({
-      name, type: 'bar', stack: 'total', barMaxWidth: 40,
-      data: qs.map(q => Number(quarterly[q]?.[name] || 0)),
-      itemStyle: { color: colors[i], borderRadius: i === divNames.length - 1 ? [3,3,0,0] : [0,0,0,0] }
-    }))
+    tooltip: { trigger: 'axis', formatter: p => `${p[0].name}<br/>${p[0].marker}${p[0].value.toLocaleString()} 万` },
+    grid: { left: 110, right: 50, top: 8, bottom: 8 },
+    xAxis: { type: 'value', axisLabel: { color: '#7a8fa6', fontSize: 10 }, splitLine: { lineStyle: { color: '#1e2a38' } } },
+    yAxis: { type: 'category', data: names.map(n => n.replace('事业部','')), axisLabel: { color: '#7a8fa6', fontSize: 11 }, axisLine: { show: false }, axisTick: { show: false } },
+    series: [{
+      type: 'bar', barMaxWidth: 20,
+      data: vals.map((v, i) => ({ value: v, itemStyle: { color: ['#3b82f6','#10b981','#f0a500','#8b5cf6'][i % 4], borderRadius: [0,3,3,0] } })),
+      label: { show: true, position: 'right', color: '#7a8fa6', fontSize: 10, formatter: p => p.value.toLocaleString() + ' 万' }
+    }]
   }
 })
 
@@ -72,10 +78,15 @@ function fmt(n) {
   <div v-loading="loading" element-loading-background="transparent">
     <div class="section-header">
       <span class="section-title">商机支撑分析</span>
-      <span class="section-sub">{{ store.year }}年 · 全中心</span>
-      <el-radio-group v-model="activeMetric" size="small" style="margin-left:16px">
+      <el-radio-group v-model="quarter" size="small" @change="load">
+        <el-radio-button v-for="q in QUARTERS" :key="q" :value="q">{{ q }}</el-radio-button>
+      </el-radio-group>
+      <el-radio-group v-model="activeMetric" size="small" style="margin-left:8px">
         <el-radio-button v-for="m in METRICS" :key="m" :value="m">{{ METRIC_LABEL[m] }}</el-radio-button>
       </el-radio-group>
+      <span v-if="data" style="font-size:12px;color:var(--text-sec);margin-left:4px">
+        {{ store.year }}年{{ data.quarter }} · {{ data.total_count }}条商机
+      </span>
     </div>
 
     <!-- 三指标概览行 -->
@@ -115,12 +126,12 @@ function fmt(n) {
             </span>
             <span class="kpi-unit">%</span>
           </div>
-          <div class="kpi-meta"><span class="kpi-yoy">进行中商机 / 目标缺口</span></div>
+          <div class="kpi-meta"><span class="kpi-yoy">进行中商机 / 季度缺口</span></div>
         </div>
         <div class="kpi-card k-payment">
-          <div class="kpi-label">{{ METRIC_LABEL[activeMetric] }} 年度缺口</div>
+          <div class="kpi-label">{{ METRIC_LABEL[activeMetric] }} 季度缺口</div>
           <div class="kpi-row"><span class="kpi-value">{{ fmt(cur.gap) }}</span><span class="kpi-unit">万元</span></div>
-          <div class="kpi-meta"><span class="kpi-yoy">年度目标 {{ fmt(cur.annual_target) }} · YTD {{ fmt(cur.ytd_actual) }}</span></div>
+          <div class="kpi-meta"><span class="kpi-yoy">季度目标 {{ fmt(cur.quarter_target) }} · 完成 {{ fmt(cur.quarter_actual) }}</span></div>
         </div>
       </div>
 
@@ -142,8 +153,8 @@ function fmt(n) {
           </div>
         </div>
         <div class="card">
-          <div class="card-title">{{ METRIC_LABEL[activeMetric] }} · 季度商机分布</div>
-          <v-chart :option="quarterOption" style="height:220px" autoresize />
+          <div class="card-title">{{ METRIC_LABEL[activeMetric] }} · 事业部商机分布</div>
+          <v-chart :option="divBarOption" style="height:200px" autoresize />
         </div>
       </div>
     </div>

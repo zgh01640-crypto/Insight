@@ -15,9 +15,11 @@ http.interceptors.response.use(
 // ── Dashboard ────────────────────────────────────────
 export const getOverview      = (year) => http.get('/dashboard/overview', { params: { year } })
 export const getDivisionDetail= (id, year) => http.get(`/dashboard/division/${id}`, { params: { year } })
-export const getOppSupport    = (year) => http.get('/dashboard/opportunity-support', { params: { year } })
+export const getOppSupport    = (year, quarter) => http.get('/dashboard/opportunity-support', { params: { year, quarter } })
 export const getTrend         = (metric) => http.get('/dashboard/trend', { params: { metric } })
 export const getUnits         = () => http.get('/dashboard/units')
+export const getQuarterly     = (year, quarter) => http.get('/dashboard/quarterly', { params: { year, quarter } })
+export const getMonthly       = (year, month) => http.get('/dashboard/monthly', { params: { year, month } })
 
 // ── Targets ──────────────────────────────────────────
 export const getTargets       = (year) => http.get(`/targets/${year}`)
