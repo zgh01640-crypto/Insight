@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(tasklist /FI \"PID eq 25936\")",
+      "Bash(powershell -Command \"Get-Process -Id 25936 | Select-Object Name, Id, Path\")",
+      "Bash(python3 -c \"import openpyxl; print\\(''openpyxl available''\\); import pandas; print\\(''pandas available''\\)\")",
+      "Bash(python3:*)",
+      "Bash(python3 -c \"print\\(''hello''\\)\")",
+      "Read(//usr/**)",
+      "Read(//usr/local/**)",
+      "Bash(/c/Users/17525/AppData/Local/Microsoft/WindowsApps/python3 --version)",
+      "Read(//c/Users/17525/AppData/Local/Programs/**)",
+      "Bash(ls /c/Python*)",
+      "Read(//c/Users/17525/AppData/Local/Microsoft/WindowsApps//**)",
+      "Bash(/c/Python314/python.exe -c \"import openpyxl; print\\(''openpyxl ok''\\)\")",
+      "Bash(/c/Python314/python.exe -c \"import pandas; print\\(''pandas ok''\\)\")",
+      "Bash(/c/Python314/python.exe \"D:/ClaudeCode/Insight/inspect_excel.py\")",
+      "Bash(/c/Python314/python.exe \"D:/ClaudeCode/Insight/inspect_excel2.py\")",
+      "Bash(iconv -f cp936 -t utf-8)",
+      "Bash(/c/Python314/python.exe D:/ClaudeCode/Insight/inspect_excel2.py)",
+      "Bash(python -c \"import openpyxl; print\\(''openpyxl ok''\\)\")",
+      "Bash(python inspect_excel.py)",
+      "Bash(python -c \":*)",
+      "Bash(python -X utf8 _inspect_run.py)",
+      "Bash(docker exec insight-backend python -c \":*)",
+      "Bash(docker cp:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker-compose stop:*)",
+      "Bash(docker rmi:*)",
+      "Bash(python make_template.py)"
+    ]
+  }
+}

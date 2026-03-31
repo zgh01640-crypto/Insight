@@ -7,7 +7,7 @@ app = FastAPI(title="Insight 经营分析", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:80", "http://frontend"],
+    allow_origins=["http://localhost:5173", "http://localhost:80", "http://localhost:8010", "http://frontend"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

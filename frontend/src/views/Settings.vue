@@ -35,8 +35,8 @@ import { ref } from 'vue'
             <span style="margin-left:8px;color:var(--text-sec)">%（当前：{{ threshold }}%）</span>
           </el-form-item>
           <el-form-item label="后端 API">
-            <span style="font-family:var(--mono);color:var(--text-sec)">http://localhost:8000</span>
-            <a href="http://localhost:8000/docs" target="_blank" style="margin-left:10px;color:var(--accent);font-size:12px">查看 API 文档 →</a>
+            <span style="font-family:var(--mono);color:var(--text-sec)">http://localhost:8010</span>
+            <a href="http://localhost:8010/docs" target="_blank" style="margin-left:10px;color:var(--accent);font-size:12px">查看 API 文档 →</a>
           </el-form-item>
         </el-form>
       </div>

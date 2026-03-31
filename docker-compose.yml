@@ -10,7 +10,7 @@ services:
     environment:
       - DATABASE_URL=sqlite:///./data/insight.db
     ports:
-      - "8000:8000"
+      - "8010:8000"
     restart: unless-stopped
 
   frontend:
@@ -21,6 +21,8 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules        # prevent host override
+    environment:
+      - VITE_BACKEND_URL=http://backend:8000
     ports:
       - "5173:5173"
     depends_on:
