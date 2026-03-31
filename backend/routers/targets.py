@@ -72,12 +72,13 @@ def update_targets(year: int, body: TargetBatchUpdate, session: Session = Depend
             session.flush()
 
         if item.monthly_targets:
-            # delete existing monthly targets
+            # delete existing monthly targets first, flush before inserting
             existing = session.exec(
                 select(MonthlyTarget).where(MonthlyTarget.annual_target_id == at.id)
             ).all()
             for mt in existing:
                 session.delete(mt)
+            session.flush()  # 确保 DELETE 先于 INSERT 执行，避免唯一约束冲突
             for i, amt in enumerate(item.monthly_targets[:12], start=1):
                 session.add(MonthlyTarget(
                     annual_target_id=at.id,
