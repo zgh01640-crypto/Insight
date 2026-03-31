@@ -137,3 +137,26 @@ const METRIC_LABEL = { contract:'合同', revenue:'收入', payment:'回款' }
 <style scoped>
 .card { background:var(--bg-card); border:1px solid var(--bg-border); border-radius:10px; padding:18px 20px; }
 </style>
+
+<style>
+/* el-table 横向滚动条 */
+.el-table__body-wrapper .el-scrollbar__bar .el-scrollbar__thumb,
+.el-table__footer-wrapper .el-scrollbar__bar .el-scrollbar__thumb {
+  background-color: #2d3f52 !important;
+  opacity: 1 !important;
+}
+.el-table__body-wrapper .el-scrollbar__bar,
+.el-table__footer-wrapper .el-scrollbar__bar {
+  opacity: 1 !important;
+  height: 6px !important;
+  bottom: 0 !important;
+}
+.el-table__body-wrapper .el-scrollbar__bar .el-scrollbar__thumb:hover {
+  background-color: #4a6580 !important;
+}
+/* el-select 下拉滚动条 */
+.el-select-dropdown .el-scrollbar__thumb {
+  background-color: #2d3f52 !important;
+  opacity: 1 !important;
+}
+</style>

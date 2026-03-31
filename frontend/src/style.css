@@ -23,6 +23,12 @@ body {
   --text-dim:  #3d5166;
   --mono: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
   --sidebar-w: 220px;
+
+  /* Element Plus 滚动条颜色覆盖 */
+  --el-scrollbar-opacity: 1;
+  --el-scrollbar-bg-color: #1e2a38;
+  --el-scrollbar-hover-opacity: 1;
+  --el-scrollbar-hover-bg-color: #3d5166;
 }
 
 /* Element Plus dark theme overrides */
@@ -44,7 +50,23 @@ body {
 .el-button--primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
 .el-button--primary:hover { background: #fbbf24; border-color: #fbbf24; }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 4px; height: 4px; }
+/* Scrollbar — global */
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--bg-border); border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: var(--bg-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* Element Plus table inner scrollbar override */
+.el-scrollbar__bar.is-vertical .el-scrollbar__thumb,
+.el-scrollbar__bar.is-horizontal .el-scrollbar__thumb {
+  background: var(--bg-border) !important;
+  border-radius: 3px;
+  opacity: 1;
+}
+.el-scrollbar__bar.is-vertical .el-scrollbar__thumb:hover,
+.el-scrollbar__bar.is-horizontal .el-scrollbar__thumb:hover {
+  background: var(--text-dim) !important;
+}
+.el-scrollbar__bar { opacity: 1 !important; }
+.el-scrollbar__wrap { scrollbar-width: thin; scrollbar-color: var(--bg-border) transparent; }
