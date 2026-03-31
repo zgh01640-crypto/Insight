@@ -1,5 +1,5 @@
 <script setup>
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, computed } from 'vue'
 import { useAppStore } from '@/stores/app'
 
 const store    = useAppStore()
@@ -9,6 +9,14 @@ const thinking = ref(false)
 const messages = ref([])
 const bodyRef  = ref(null)
 const chatWidth = ref(440)
+const selectedModel = ref('deepseek')
+const availableModels = ref([
+  { id: 'deepseek', label: 'DeepSeek',      model: 'deepseek-chat' },
+  { id: 'kimi',     label: 'Kimi',          model: 'kimi-k2.5' },
+  { id: 'glm',      label: 'GLM',           model: 'glm-5' },
+  { id: 'claude',   label: 'Claude Sonnet', model: 'anthropic/claude-sonnet-4.6' },
+])
+const currentModel = computed(() => availableModels.value.find(m => m.id === selectedModel.value))
 
 // 拖拽左侧边缘横向拉伸
 function startResize(e) {
@@ -52,6 +60,7 @@ async function send() {
       body: JSON.stringify({
         messages: messages.value.slice(0, -1).map(m => ({ role: m.role, content: m.content })),
         year: store.year,
+        model_id: selectedModel.value,
       }),
     })
 
@@ -143,7 +152,10 @@ function renderMd(text) {
       <div class="chat-header">
         <div class="chat-header-left">
           <span class="chat-title">AI 分析助手</span>
-          <span class="chat-model-badge">DeepSeek</span>
+          <select v-model="selectedModel" class="model-select" :disabled="thinking">
+            <option v-for="m in availableModels" :key="m.id" :value="m.id">{{ m.label }}</option>
+          </select>
+          <span class="model-name-badge">{{ currentModel?.model }}</span>
           <span v-if="thinking" class="chat-status thinking">
             <span class="dot-wave"><span/><span/><span/></span>思考中
           </span>
@@ -181,6 +193,12 @@ function renderMd(text) {
           <div v-if="thinking && i === messages.length - 1 && msg.role === 'assistant' && !msg.content" class="bubble typing">
             <span class="dot-wave"><span/><span/><span/></span>
           </div>
+        </div>
+
+        <!-- 实时状态提示 -->
+        <div v-if="thinking" class="status-toast">
+          <span class="dot-wave"><span/><span/><span/></span>
+          <span>{{ currentModel?.label }}（{{ currentModel?.model }}）正在思考...</span>
         </div>
       </div>
 
@@ -258,14 +276,27 @@ export default {
 .chat-header-left { display: flex; align-items: center; gap: 8px; }
 .chat-header-right { display: flex; align-items: center; gap: 8px; }
 .chat-title { font-size: 13px; font-weight: 600; }
-.chat-model-badge {
-  font-size: 10px; padding: 2px 6px; border-radius: 4px;
-  background: rgba(240,165,0,.15); color: var(--accent, #f0a500);
-  font-weight: 500;
+.model-select {
+  font-size: 11px; padding: 2px 6px; border-radius: 4px;
+  background: rgba(240,165,0,.12); color: var(--accent, #f0a500);
+  border: 1px solid rgba(240,165,0,.25); cursor: pointer; outline: none;
+  font-weight: 500; transition: border-color .15s;
+}
+.model-select:hover:not(:disabled) { border-color: var(--accent, #f0a500); }
+.model-select:disabled { opacity: .5; cursor: not-allowed; }
+.model-name-badge {
+  font-size: 10px; color: var(--text-sec, #7a8fa6);
+  font-family: monospace; padding: 1px 0;
 }
 .chat-year { font-size: 11px; color: var(--text-sec, #7a8fa6); }
 .chat-status { font-size: 10px; display: flex; align-items: center; gap: 4px; }
-.chat-status.thinking { color: var(--accent, #f0a500); }
+.status-toast {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 11px; color: var(--accent, #f0a500);
+  padding: 6px 10px; border-radius: 8px;
+  background: rgba(240,165,0,.08); border: 1px solid rgba(240,165,0,.2);
+  align-self: center; width: fit-content; margin: 0 auto;
+}
 .chat-status.ready { color: var(--green, #10b981); }
 
 .clear-btn {

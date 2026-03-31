@@ -15,14 +15,46 @@ from routers.dashboard import (
 
 router = APIRouter()
 
-# ── LLM Client ───────────────────────────────────────
-def _llm_client() -> OpenAI:
+# ── 多模型配置 ────────────────────────────────────────
+MODELS = {
+    "deepseek": {
+        "label": "DeepSeek",
+        "model": "deepseek-chat",
+        "base_url": "https://api.deepseek.com",
+        "api_key_env": "LLM_API_KEY",
+    },
+    "kimi": {
+        "label": "Kimi",
+        "model": "kimi-k2.5",
+        "base_url": "https://api.moonshot.cn/v1",
+        "api_key_env": "KIMI_API_KEY",
+    },
+    "glm": {
+        "label": "GLM",
+        "model": "glm-5",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "api_key_env": "GLM_API_KEY",
+    },
+    "claude": {
+        "label": "Claude Sonnet",
+        "model": "anthropic/claude-sonnet-4.6",
+        "base_url": "https://api.ofox.ai/anthropic",
+        "api_key_env": "ANTHROPIC_API_KEY",
+    },
+}
+DEFAULT_MODEL = os.environ.get("LLM_MODEL_ID", "deepseek")
+
+def _llm_client(model_id: str) -> OpenAI:
+    cfg = MODELS.get(model_id, MODELS[DEFAULT_MODEL])
     return OpenAI(
-        api_key=os.environ.get("LLM_API_KEY", ""),
-        base_url=os.environ.get("LLM_BASE_URL", "https://api.deepseek.com"),
+        api_key=os.environ.get(cfg["api_key_env"], ""),
+        base_url=cfg["base_url"],
     )
 
-MODEL = os.environ.get("LLM_MODEL", "deepseek-chat")
+# ── 模型列表端点 ──────────────────────────────────────
+@router.get("/models")
+def list_models():
+    return [{"id": k, "label": v["label"]} for k, v in MODELS.items()]
 
 # ── Tool 定义 ─────────────────────────────────────────
 TOOLS = [
@@ -129,6 +161,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     year: int = None
+    model_id: str = DEFAULT_MODEL
 
 # ── SSE 流式聊天端点 ───────────────────────────────────
 @router.post("/chat")
@@ -157,14 +190,15 @@ def chat(req: ChatRequest, session: Session = Depends(get_session)):
     messages = [{"role": "system", "content": system_prompt}]
     messages += [{"role": m.role, "content": m.content} for m in req.messages[-10:]]
 
-    client = _llm_client()
+    client = _llm_client(req.model_id)
+    model_name = MODELS.get(req.model_id, MODELS[DEFAULT_MODEL])["model"]
 
     def generate():
         nonlocal messages
         # agentic loop：循环直到无 tool_use
         while True:
             response = client.chat.completions.create(
-                model=MODEL,
+                model=model_name,
                 messages=messages,
                 tools=TOOLS,
                 tool_choice="auto",
