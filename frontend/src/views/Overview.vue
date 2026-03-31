@@ -54,13 +54,11 @@ const byUnit = computed(() => {
 const centerKpis = computed(() => {
   if (!data.value) return []
   return ['contract', 'revenue', 'payment'].map(m => {
-    const items = data.value.summaries.filter(s => s.metric_type === m)
+    const items  = data.value.summaries.filter(s => s.metric_type === m)
     const ytd    = items.reduce((a, s) => a + s.ytd_actual, 0)
-    const target = items.reduce((a, s) => a + s.ytd_target, 0)
-    const rate   = target > 0 ? +(ytd / target * 100).toFixed(1) : 0
-    const prevYtd= items.reduce((a, s) => a + s.prev_ytd_actual, 0)
-    const yoy    = prevYtd > 0 ? +((ytd - prevYtd) / prevYtd * 100).toFixed(1) : null
-    return { metric: m, label: METRIC_LABEL[m], ytd, target, rate, yoy }
+    const annual = items.reduce((a, s) => a + s.annual_target, 0)
+    const rate   = annual > 0 ? +(ytd / annual * 100).toFixed(1) : 0
+    return { metric: m, label: METRIC_LABEL[m], ytd, annual, rate }
   })
 })
 
@@ -100,37 +98,17 @@ function goToDivision(unit) {
         class="kpi-card"
         :class="`k-${kpi.metric}`"
       >
-        <div class="kpi-label">{{ kpi.label }} · YTD完成</div>
+        <div class="kpi-label">{{ kpi.label }} · 年累完成</div>
         <div class="kpi-row">
           <span class="kpi-value">{{ fmt(kpi.ytd) }}</span>
           <span class="kpi-unit">万元</span>
         </div>
         <div class="kpi-meta">
           <span class="kpi-rate" :class="rateClass(kpi.rate)">{{ kpi.rate }}%</span>
-          <span class="kpi-yoy">
-            <template v-if="kpi.yoy !== null">
-              <span :class="kpi.yoy >= 0 ? 'up' : 'down'">{{ kpi.yoy >= 0 ? '▲' : '▼' }}{{ Math.abs(kpi.yoy) }}%</span>
-              同比
-            </template>
-            <template v-else>—</template>
-          </span>
+          <span class="kpi-yoy">年度总目标 <b style="color:var(--text-pri)">{{ fmt(kpi.annual) }}</b> 万</span>
         </div>
         <div class="kpi-progress">
           <div class="kpi-bar" :style="{ width: Math.min(kpi.rate, 100) + '%' }" />
-        </div>
-      </div>
-    </div>
-
-    <!-- YoY Row -->
-    <div class="card" style="margin-bottom:14px" v-if="data">
-      <div class="card-title">各事业部同比增长率（合同·YTD）</div>
-      <div class="yoy-grid">
-        <div v-for="unit in byUnit" :key="unit.id" class="yoy-card" @click="goToDivision(unit)" style="cursor:pointer">
-          <div class="yoy-div">{{ unit.name.replace('事业部', '') }}</div>
-          <div class="yoy-val" :class="(unit.metrics.contract?.yoy_rate ?? 0) >= 0 ? 'up' : 'down'">
-            {{ unit.metrics.contract?.yoy_rate !== null ? ((unit.metrics.contract?.yoy_rate ?? 0) >= 0 ? '+' : '') + (unit.metrics.contract?.yoy_rate ?? '—') + '%' : '—' }}
-          </div>
-          <div class="yoy-label">{{ fmt(unit.metrics.contract?.prev_ytd_actual) }} → {{ fmt(unit.metrics.contract?.ytd_actual) }} 万</div>
         </div>
       </div>
     </div>
@@ -160,8 +138,8 @@ function goToDivision(unit) {
               </td>
               <template v-for="m in ['contract','revenue','payment']" :key="m">
                 <td>
-                  <span class="rate-cell" :class="rateClass(unit.metrics[m]?.rate ?? 0)">
-                    {{ unit.metrics[m]?.rate ?? 0 }}%
+                  <span class="rate-cell" :class="rateClass(unit.metrics[m]?.annual_rate ?? 0)">
+                    {{ unit.metrics[m]?.annual_rate ?? 0 }}%
                   </span>
                 </td>
                 <td class="mono dim">{{ fmt(unit.metrics[m]?.ytd_actual) }}</td>

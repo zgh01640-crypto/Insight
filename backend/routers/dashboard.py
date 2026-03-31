@@ -66,7 +66,8 @@ def _ytd_target(session: Session, year: int, cur_month: int) -> dict:
     ).all()
     for at in at_rows:
         key = (at.business_unit_id, at.metric_type)
-        if key not in result:
+        # 月度分解为空或全为0时，用 2:3:3:2 fallback
+        if not result.get(key):
             result[key] = round(at.target_amount * _ytd_weight(cur_month), 2)
     return result
 
@@ -96,12 +97,13 @@ def overview(
     summaries = []
     for unit in units:
         for metric in METRICS:
-            actual   = ytd_a.get((unit.id, metric), 0.0)
-            target   = ytd_t.get((unit.id, metric), 0.0)
-            annual   = ann_t.get((unit.id, metric), 0.0)
-            prev_act = prev_a.get((unit.id, metric), 0.0)
-            rate     = round(actual / target * 100, 1) if target else 0.0
-            yoy      = round((actual - prev_act) / prev_act * 100, 1) if prev_act else None
+            actual      = ytd_a.get((unit.id, metric), 0.0)
+            target      = ytd_t.get((unit.id, metric), 0.0)
+            annual      = ann_t.get((unit.id, metric), 0.0)
+            prev_act    = prev_a.get((unit.id, metric), 0.0)
+            rate        = round(actual / target * 100, 1) if target else 0.0
+            annual_rate = round(actual / annual * 100, 1) if annual else 0.0
+            yoy         = round((actual - prev_act) / prev_act * 100, 1) if prev_act else None
             summaries.append({
                 "business_unit_id":   unit.id,
                 "business_unit_name": unit.name,
@@ -109,6 +111,7 @@ def overview(
                 "ytd_actual":         actual,
                 "ytd_target":         target,
                 "rate":               rate,
+                "annual_rate":        annual_rate,
                 "annual_target":      annual,
                 "prev_ytd_actual":    prev_act,
                 "yoy_rate":           yoy,
@@ -170,11 +173,11 @@ def division_detail(
                 .where(MonthlyTarget.annual_target_id == at.id)
                 .order_by(MonthlyTarget.month)
             ).all()
-            if mt_rows:
+            if mt_rows and any(mt.target_amount > 0 for mt in mt_rows):
                 for mt in mt_rows:
                     monthly_target[mt.month - 1] = mt.target_amount
             else:
-                # fallback: 2:3:3:2 quarterly distribution
+                # fallback: 2:3:3:2 quarterly distribution（月度分解为空或全0时）
                 monthly_target = _monthly_targets(at.target_amount)
 
         actual   = ytd_a.get((div_id, metric), 0.0)
@@ -227,36 +230,79 @@ def division_detail(
 @router.get("/opportunity-support", response_model=ApiResponse)
 def opportunity_support(
     year: int = Query(default=None),
+    quarter: str = Query(default=None),
     session: Session = Depends(get_session),
 ):
     if year is None:
         year = date.today().year
-    cur_month = _cur_month()
+    # 默认当前季度
+    if quarter is None:
+        m = date.today().month
+        quarter = "Q1" if m <= 3 else "Q2" if m <= 6 else "Q3" if m <= 9 else "Q4"
+    quarter = quarter.upper()
 
-    ytd_a = _ytd_actual(session, year, cur_month)
+    q_months = _QUARTER_MONTHS.get(quarter, [1, 2, 3])
+    cur_month = _cur_month()
     ann_t = _annual_targets(session, year)
 
-    all_opps = session.exec(
-        select(Opportunity).where(Opportunity.year == year)
+    # 季度实际完成（该季度已过月份之和）
+    q_rows = session.exec(
+        select(
+            MonthlyActual.business_unit_id,
+            MonthlyActual.metric_type,
+            func.sum(MonthlyActual.actual_amount).label("total"),
+        )
+        .where(
+            MonthlyActual.year == year,
+            MonthlyActual.month.in_(q_months),
+            MonthlyActual.month <= cur_month,
+        )
+        .group_by(MonthlyActual.business_unit_id, MonthlyActual.metric_type)
+    ).all()
+    q_actual_map = {(r.business_unit_id, r.metric_type): r.total or 0.0 for r in q_rows}
+
+    # 该季度商机
+    q_opps = session.exec(
+        select(Opportunity).where(
+            Opportunity.year == year,
+            Opportunity.quarter == quarter,
+        )
     ).all()
     units = session.exec(select(BusinessUnit).order_by(BusinessUnit.sort_order)).all()
-
     STAGES = ["线索", "立项", "报价", "签约跟进", "已完成"]
+
+    def _div_q_target(unit_id, metric):
+        """单个事业部某指标的季度目标。"""
+        at = session.exec(
+            select(AnnualTarget).where(
+                AnnualTarget.year == year,
+                AnnualTarget.business_unit_id == unit_id,
+                AnnualTarget.metric_type == metric,
+            )
+        ).first()
+        if at:
+            mt_rows = session.exec(
+                select(MonthlyTarget).where(
+                    MonthlyTarget.annual_target_id == at.id,
+                    MonthlyTarget.month.in_(q_months),
+                )
+            ).all()
+            if mt_rows and any(mt.target_amount > 0 for mt in mt_rows):
+                return sum(mt.target_amount for mt in mt_rows)
+        annual = ann_t.get((unit_id, metric), 0.0)
+        return round(annual * _QUARTER_WEIGHT[quarter], 2)
 
     metrics_data = {}
     for metric in METRICS:
-        # Gap for this metric (all units combined)
-        actual_sum = sum(v for (_, m), v in ytd_a.items() if m == metric)
-        annual_sum = sum(v for (_, m), v in ann_t.items() if m == metric)
-        gap = max(annual_sum - actual_sum, 0)
+        q_actual_sum = sum(v for (_, m), v in q_actual_map.items() if m == metric)
+        q_tgt = sum(_div_q_target(u.id, metric) for u in units)
+        gap = max(q_tgt - q_actual_sum, 0)
 
-        # Active opps for this metric only
-        active = [o for o in all_opps if o.metric_type == metric and o.status == "进行中"]
+        active = [o for o in q_opps if o.metric_type == metric and o.status == "进行中"]
         opp_total = sum(o.estimated_amount for o in active)
-        cover_rate = round(opp_total / gap * 100, 1) if gap else 999.0
+        cover_rate = round(opp_total / q_tgt * 100, 1) if q_tgt else 0.0
 
-        # Funnel for this metric
-        metric_opps = [o for o in all_opps if o.metric_type == metric]
+        metric_opps = [o for o in q_opps if o.metric_type == metric]
         funnel = []
         for stage in STAGES:
             items = [o for o in metric_opps if o.stage == stage]
@@ -266,29 +312,37 @@ def opportunity_support(
                 "total_amount": sum(o.estimated_amount for o in items),
             })
 
-        # Quarterly distribution for this metric
-        quarterly = {q: {} for q in ["Q1", "Q2", "Q3", "Q4"]}
-        for opp in metric_opps:
-            unit = next((u for u in units if u.id == opp.business_unit_id), None)
-            name = unit.name if unit else str(opp.business_unit_id)
-            quarterly[opp.quarter][name] = quarterly[opp.quarter].get(name, 0) + opp.estimated_amount
+        # 按事业部统计覆盖率（进行中商机 / 季度目标）
+        div_coverage = []
+        for u in units:
+            u_tgt = _div_q_target(u.id, metric)
+            u_active = [o for o in active if o.business_unit_id == u.id]
+            u_opp = sum(o.estimated_amount for o in u_active)
+            u_rate = round(u_opp / u_tgt * 100, 1) if u_tgt else 0.0
+            div_coverage.append({
+                "name": u.name,
+                "opp_total": u_opp,
+                "quarter_target": u_tgt,
+                "cover_rate": u_rate,
+            })
 
         metrics_data[metric] = {
-            "ytd_actual": actual_sum,
-            "annual_target": annual_sum,
+            "quarter_actual": q_actual_sum,
+            "quarter_target": q_tgt,
             "gap": gap,
             "opp_active_total": opp_total,
             "cover_rate": cover_rate,
             "funnel": funnel,
-            "quarterly": quarterly,
+            "div_coverage": div_coverage,
             "count": len(metric_opps),
         }
 
     return ApiResponse(data={
         "year": year,
+        "quarter": quarter,
         "cur_month": cur_month,
         "metrics": metrics_data,
-        "total_count": len(all_opps),
+        "total_count": len(q_opps),
     })
 
 
@@ -363,6 +417,209 @@ def trend(
         "cur_month": cur_month,
         "matrix": matrix,
         "center_monthly": center_monthly,
+    })
+
+
+# ── Monthly Dashboard ─────────────────────────────────
+@router.get("/monthly", response_model=ApiResponse)
+def monthly_dashboard(
+    year: int = Query(default=None),
+    month: int = Query(default=None),
+    session: Session = Depends(get_session),
+):
+    if year is None:
+        year = date.today().year
+    if month is None:
+        month = date.today().month
+
+    units = session.exec(select(BusinessUnit).order_by(BusinessUnit.sort_order)).all()
+    ann_t = _annual_targets(session, year)
+
+    # 月度实际
+    rows = session.exec(
+        select(
+            MonthlyActual.business_unit_id,
+            MonthlyActual.metric_type,
+            MonthlyActual.actual_amount,
+        )
+        .where(MonthlyActual.year == year, MonthlyActual.month == month)
+    ).all()
+    m_actual = {(r.business_unit_id, r.metric_type): r.actual_amount for r in rows}
+
+    def _m_target(unit_id, metric):
+        """月度目标：优先用月度分解，否则用 2:3:3:2 fallback。"""
+        at = session.exec(
+            select(AnnualTarget).where(
+                AnnualTarget.year == year,
+                AnnualTarget.business_unit_id == unit_id,
+                AnnualTarget.metric_type == metric,
+            )
+        ).first()
+        if at:
+            mt = session.exec(
+                select(MonthlyTarget).where(
+                    MonthlyTarget.annual_target_id == at.id,
+                    MonthlyTarget.month == month,
+                )
+            ).first()
+            if mt and mt.target_amount > 0:
+                return mt.target_amount
+        annual = ann_t.get((unit_id, metric), 0.0)
+        return round(annual * _Q_WEIGHTS[month - 1], 2)
+
+    # 产品中心合计
+    center = []
+    for metric in METRICS:
+        tgt = sum(_m_target(u.id, metric) for u in units)
+        act = sum(m_actual.get((u.id, metric), 0.0) for u in units)
+        ann = sum(ann_t.get((u.id, metric), 0.0) for u in units)
+        center.append({
+            "metric_type":    metric,
+            "month_target":   tgt,
+            "month_actual":   act,
+            "annual_target":  ann,
+            "rate": round(act / tgt * 100, 1) if tgt else 0.0,
+        })
+
+    # 各事业部明细
+    divisions = []
+    for unit in units:
+        metrics_data = {}
+        for metric in METRICS:
+            tgt  = _m_target(unit.id, metric)
+            act  = m_actual.get((unit.id, metric), 0.0)
+            ann  = ann_t.get((unit.id, metric), 0.0)
+            metrics_data[metric] = {
+                "month_target":  tgt,
+                "month_actual":  act,
+                "annual_target": ann,
+                "rate": round(act / tgt * 100, 1) if tgt else 0.0,
+            }
+        divisions.append({
+            "business_unit_id":   unit.id,
+            "business_unit_name": unit.name,
+            "metrics": metrics_data,
+        })
+
+    return ApiResponse(data={
+        "year": year, "month": month,
+        "center": center, "divisions": divisions,
+    })
+
+
+# ── Quarterly Dashboard ───────────────────────────────
+_QUARTER_MONTHS = { "Q1": [1,2,3], "Q2": [4,5,6], "Q3": [7,8,9], "Q4": [10,11,12] }
+_QUARTER_WEIGHT = { "Q1": 0.2, "Q2": 0.3, "Q3": 0.3, "Q4": 0.2 }
+
+
+def _cur_quarter() -> str:
+    m = date.today().month
+    return "Q1" if m <= 3 else "Q2" if m <= 6 else "Q3" if m <= 9 else "Q4"
+
+
+@router.get("/quarterly", response_model=ApiResponse)
+def quarterly_dashboard(
+    year: int = Query(default=None),
+    quarter: str = Query(default=None),
+    session: Session = Depends(get_session),
+):
+    if year is None:
+        year = date.today().year
+    if quarter is None:
+        quarter = _cur_quarter()
+    quarter = quarter.upper()
+
+    months = _QUARTER_MONTHS.get(quarter, [1,2,3])
+    cur_month = date.today().month
+
+    units    = session.exec(select(BusinessUnit).order_by(BusinessUnit.sort_order)).all()
+    ann_t    = _annual_targets(session, year)
+
+    # 季度实际完成：该季度已过月份的合计（未到的月份不计）
+    rows = session.exec(
+        select(
+            MonthlyActual.business_unit_id,
+            MonthlyActual.metric_type,
+            func.sum(MonthlyActual.actual_amount).label("total"),
+        )
+        .where(
+            MonthlyActual.year == year,
+            MonthlyActual.month.in_(months),
+            MonthlyActual.month <= cur_month,
+        )
+        .group_by(MonthlyActual.business_unit_id, MonthlyActual.metric_type)
+    ).all()
+    q_actual = {(r.business_unit_id, r.metric_type): r.total or 0.0 for r in rows}
+
+    def _q_target(unit_id, metric):
+        annual = ann_t.get((unit_id, metric), 0.0)
+        # 优先用月度分解之和
+        at = session.exec(
+            select(AnnualTarget).where(
+                AnnualTarget.year == year,
+                AnnualTarget.business_unit_id == unit_id,
+                AnnualTarget.metric_type == metric,
+            )
+        ).first()
+        if at:
+            mt_rows = session.exec(
+                select(MonthlyTarget)
+                .where(
+                    MonthlyTarget.annual_target_id == at.id,
+                    MonthlyTarget.month.in_(months),
+                )
+            ).all()
+            if mt_rows and any(mt.target_amount > 0 for mt in mt_rows):
+                return sum(mt.target_amount for mt in mt_rows)
+        # fallback: 2:3:3:2
+        return round(annual * _QUARTER_WEIGHT[quarter], 2)
+
+    # 产品中心合计
+    center = []
+    for metric in METRICS:
+        q_tgt  = sum(_q_target(u.id, metric) for u in units)
+        q_act  = sum(q_actual.get((u.id, metric), 0.0) for u in units)
+        ann    = sum(ann_t.get((u.id, metric), 0.0) for u in units)
+        rate   = round(q_act / q_tgt * 100, 1) if q_tgt else 0.0
+        center.append({
+            "metric_type": metric,
+            "quarter_target": q_tgt,
+            "quarter_actual": q_act,
+            "annual_target": ann,
+            "rate": rate,
+        })
+
+    # 各事业部明细
+    divisions = []
+    for unit in units:
+        metrics_data = {}
+        for metric in METRICS:
+            q_tgt = _q_target(unit.id, metric)
+            q_act = q_actual.get((unit.id, metric), 0.0)
+            ann   = ann_t.get((unit.id, metric), 0.0)
+            rate  = round(q_act / q_tgt * 100, 1) if q_tgt else 0.0
+            metrics_data[metric] = {
+                "quarter_target": q_tgt,
+                "quarter_actual": q_act,
+                "annual_target":  ann,
+                "rate": rate,
+            }
+        divisions.append({
+            "business_unit_id":   unit.id,
+            "business_unit_name": unit.name,
+            "metrics": metrics_data,
+        })
+
+    # 当季已过月份数
+    elapsed = sum(1 for m in months if m <= cur_month)
+
+    return ApiResponse(data={
+        "year": year,
+        "quarter": quarter,
+        "cur_month": cur_month,
+        "elapsed_months": elapsed,
+        "center": center,
+        "divisions": divisions,
     })
 
 
