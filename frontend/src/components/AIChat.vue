@@ -187,12 +187,10 @@ function renderMd(text) {
         </div>
 
         <div v-for="(msg, i) in messages" :key="i" :class="['chat-msg', msg.role]">
-          <div v-if="msg.role === 'assistant'" class="avatar">AI</div>
-          <div class="bubble" v-html="renderMd(msg.content || (thinking && i === messages.length - 1 ? '' : ''))">
-          </div>
-          <div v-if="thinking && i === messages.length - 1 && msg.role === 'assistant' && !msg.content" class="bubble typing">
-            <span class="dot-wave"><span/><span/><span/></span>
-          </div>
+          <template v-if="!(thinking && i === messages.length - 1 && msg.role === 'assistant' && !msg.content)">
+            <div v-if="msg.role === 'assistant'" class="avatar">AI</div>
+            <div class="bubble" v-html="renderMd(msg.content)"></div>
+          </template>
         </div>
 
         <!-- 实时状态提示 -->

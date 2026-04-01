@@ -17,7 +17,6 @@ const month   = ref(new Date().getMonth() + 1)
 const MONTHS       = Array.from({ length: 12 }, (_, i) => i + 1)
 const METRIC_LABEL = { contract: '合同', revenue: '收入', payment: '回款' }
 const METRIC_COLOR = { contract: '#3b82f6', revenue: '#10b981', payment: '#f0a500' }
-const METRIC_CLS   = { contract: 'k-contract', revenue: 'k-revenue', payment: 'k-payment' }
 
 async function load() {
   loading.value = true
@@ -43,7 +42,6 @@ const centerMap = computed(() => {
 function makeBarOption(metric) {
   if (!data.value?.divisions) return {}
   const divs  = data.value.divisions
-  const color = METRIC_COLOR[metric]
   return {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis', formatter: p => `${p[0].name}<br/>${p[0].marker}${p[0].value}%` },
@@ -83,7 +81,7 @@ function makeBarOption(metric) {
         v-for="metric in ['contract','revenue','payment']"
         :key="metric"
         class="kpi-card"
-        :class="METRIC_CLS[metric]"
+        :class="'k-' + metric"
       >
         <div class="kpi-label">{{ METRIC_LABEL[metric] }} · {{ data.month }}月</div>
         <div class="kpi-row">
@@ -100,6 +98,37 @@ function makeBarOption(metric) {
           <div class="kpi-bar" :style="{ width: Math.min(centerMap[metric]?.rate ?? 0, 100) + '%' }" />
         </div>
       </div>
+    </div>
+
+    <!-- 事业部经营指标完成列表 -->
+    <div class="section-label" v-if="data" style="margin-top:4px">事业部经营指标完成情况</div>
+    <div class="summary-table-wrap" v-if="data" style="margin-bottom:20px">
+      <table class="summary-table">
+        <thead>
+          <tr>
+            <th>事业部</th>
+            <th>合同（万元）</th>
+            <th>收入（万元）</th>
+            <th>回款（万元）</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="div in data.divisions" :key="div.business_unit_id">
+            <td class="td-name">{{ div.business_unit_name }}</td>
+            <td>{{ fmt(div.metrics.contract?.month_actual) }}</td>
+            <td>{{ fmt(div.metrics.revenue?.month_actual) }}</td>
+            <td>{{ fmt(div.metrics.payment?.month_actual) }}</td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr class="total-row">
+            <td>合计</td>
+            <td>{{ fmt(centerMap.contract?.month_actual) }}</td>
+            <td>{{ fmt(centerMap.revenue?.month_actual) }}</td>
+            <td>{{ fmt(centerMap.payment?.month_actual) }}</td>
+          </tr>
+        </tfoot>
+      </table>
     </div>
 
     <!-- 事业部完成率横向对比 -->
@@ -143,6 +172,17 @@ function makeBarOption(metric) {
 </template>
 
 <style scoped>
+.summary-table-wrap { border-radius:10px; overflow:hidden; border:1px solid var(--bg-border); }
+.summary-table { width:100%; border-collapse:collapse; font-size:13px; }
+.summary-table th {
+  background:var(--bg-border); color:var(--text-sec);
+  font-size:11px; font-weight:600; letter-spacing:.5px;
+  padding:10px 16px; text-align:left;
+}
+.summary-table td { padding:10px 16px; border-top:1px solid var(--bg-border); color:var(--text-main); font-family:var(--mono); }
+.summary-table .td-name { font-family:inherit; color:var(--text-sec); }
+.total-row td { font-weight:700; background:rgba(255,255,255,.03); border-top:2px solid var(--bg-border); }
+
 .section-label { font-size:11px; letter-spacing:1.5px; color:var(--text-sec); text-transform:uppercase; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
 .section-label::before { content:''; display:block; width:3px; height:12px; border-radius:2px; background:var(--accent); }
 .card { background:var(--bg-card); border:1px solid var(--bg-border); border-radius:10px; padding:18px 20px; }
