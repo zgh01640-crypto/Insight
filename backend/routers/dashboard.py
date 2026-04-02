@@ -435,7 +435,7 @@ def monthly_dashboard(
     units = session.exec(select(BusinessUnit).order_by(BusinessUnit.sort_order)).all()
     ann_t = _annual_targets(session, year)
 
-    # 月度实际
+    # 月度实际（本年）
     rows = session.exec(
         select(
             MonthlyActual.business_unit_id,
@@ -445,6 +445,17 @@ def monthly_dashboard(
         .where(MonthlyActual.year == year, MonthlyActual.month == month)
     ).all()
     m_actual = {(r.business_unit_id, r.metric_type): r.actual_amount for r in rows}
+
+    # 月度实际（去年同期）
+    prev_rows = session.exec(
+        select(
+            MonthlyActual.business_unit_id,
+            MonthlyActual.metric_type,
+            MonthlyActual.actual_amount,
+        )
+        .where(MonthlyActual.year == year - 1, MonthlyActual.month == month)
+    ).all()
+    m_prev = {(r.business_unit_id, r.metric_type): r.actual_amount for r in prev_rows}
 
     def _m_target(unit_id, metric):
         """月度目标：优先用月度分解，否则用 2:3:3:2 fallback。"""
@@ -470,15 +481,18 @@ def monthly_dashboard(
     # 产品中心合计
     center = []
     for metric in METRICS:
-        tgt = sum(_m_target(u.id, metric) for u in units)
-        act = sum(m_actual.get((u.id, metric), 0.0) for u in units)
-        ann = sum(ann_t.get((u.id, metric), 0.0) for u in units)
+        tgt  = sum(_m_target(u.id, metric) for u in units)
+        act  = sum(m_actual.get((u.id, metric), 0.0) for u in units)
+        prev = sum(m_prev.get((u.id, metric), 0.0) for u in units)
+        ann  = sum(ann_t.get((u.id, metric), 0.0) for u in units)
         center.append({
             "metric_type":    metric,
             "month_target":   tgt,
             "month_actual":   act,
             "annual_target":  ann,
             "rate": round(act / tgt * 100, 1) if tgt else 0.0,
+            "prev_month_actual": prev,
+            "yoy_rate": round((act - prev) / prev * 100, 1) if prev else None,
         })
 
     # 各事业部明细
@@ -488,12 +502,15 @@ def monthly_dashboard(
         for metric in METRICS:
             tgt  = _m_target(unit.id, metric)
             act  = m_actual.get((unit.id, metric), 0.0)
+            prev = m_prev.get((unit.id, metric), 0.0)
             ann  = ann_t.get((unit.id, metric), 0.0)
             metrics_data[metric] = {
                 "month_target":  tgt,
                 "month_actual":  act,
                 "annual_target": ann,
                 "rate": round(act / tgt * 100, 1) if tgt else 0.0,
+                "prev_month_actual": prev,
+                "yoy_rate": round((act - prev) / prev * 100, 1) if prev else None,
             }
         divisions.append({
             "business_unit_id":   unit.id,
