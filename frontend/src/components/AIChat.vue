@@ -151,7 +151,7 @@ function renderMd(text) {
       <!-- 头部 -->
       <div class="chat-header">
         <div class="chat-header-left">
-          <span class="chat-title">AI 分析助手</span>
+          <span class="chat-title">小助</span>
           <select v-model="selectedModel" class="model-select" :disabled="thinking">
             <option v-for="m in availableModels" :key="m.id" :value="m.id">{{ m.label }}</option>
           </select>

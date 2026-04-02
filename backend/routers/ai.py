@@ -12,6 +12,7 @@ from routers.dashboard import (
     overview, division_detail, quarterly_dashboard,
     monthly_dashboard, opportunity_support,
 )
+from routers.opportunities import list_opportunities
 
 router = APIRouter()
 
@@ -38,7 +39,7 @@ MODELS = {
     "claude": {
         "label": "Claude Sonnet",
         "model": "anthropic/claude-sonnet-4.6",
-        "base_url": "https://api.ofox.ai/anthropic",
+        "base_url": "https://api.ofox.ai/v1",
         "api_key_env": "ANTHROPIC_API_KEY",
     },
 }
@@ -132,6 +133,25 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_opportunities",
+            "description": "查询商机明细列表，支持按事业部、年份、季度、指标类型、商机阶段、状态过滤，结果按金额降序。当用户询问具体商机项目、某事业部有哪些商机、哪些项目在推进、商机明细时使用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "year":             {"type": "integer", "description": "年份"},
+                    "quarter":          {"type": "string", "enum": ["Q1","Q2","Q3","Q4"], "description": "季度"},
+                    "business_unit_id": {"type": "integer", "description": "事业部ID：1=智能建造, 2=大数据, 3=数字交易, 4=智慧政务"},
+                    "metric_type":      {"type": "string", "enum": ["contract","revenue","payment"], "description": "指标类型：contract合同/revenue收入/payment回款"},
+                    "stage":            {"type": "string", "enum": ["线索","立项","报价","签约跟进","已完成"], "description": "商机阶段"},
+                    "status":           {"type": "string", "enum": ["进行中","已赢单","已输单","已搁置"], "description": "商机状态"},
+                },
+                "required": [],
+            },
+        },
+    },
 ]
 
 # ── Tool 执行 ─────────────────────────────────────────
@@ -147,6 +167,14 @@ def _execute_tool(name: str, args: dict, session: Session) -> str:
             result = monthly_dashboard(year=args.get("year"), month=args.get("month"), session=session)
         elif name == "get_opp_support":
             result = opportunity_support(year=args.get("year"), quarter=args.get("quarter"), session=session)
+        elif name == "get_opportunities":
+            result = list_opportunities(
+                year=args.get("year"), quarter=args.get("quarter"),
+                business_unit_id=args.get("business_unit_id"),
+                metric_type=args.get("metric_type"),
+                stage=args.get("stage"), status=args.get("status"),
+                session=session,
+            )
         else:
             return json.dumps({"error": f"未知工具: {name}"}, ensure_ascii=False)
         return json.dumps(result.data, ensure_ascii=False, default=str)

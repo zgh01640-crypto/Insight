@@ -113,6 +113,45 @@ function goToDivision(unit) {
       </div>
     </div>
 
+    <!-- 事业部经营指标完成情况 -->
+    <div class="summary-table-wrap" v-if="data" style="margin-bottom:16px">
+      <table class="summary-table">
+        <thead>
+          <tr>
+            <th rowspan="2">事业部</th>
+            <th colspan="3" class="th-group">合同</th>
+            <th colspan="3" class="th-group">收入</th>
+            <th colspan="3" class="th-group">回款</th>
+          </tr>
+          <tr>
+            <th class="th-sub">目标(万)</th><th class="th-sub">完成(万)</th><th class="th-sub">完成率</th>
+            <th class="th-sub">目标(万)</th><th class="th-sub">完成(万)</th><th class="th-sub">完成率</th>
+            <th class="th-sub">目标(万)</th><th class="th-sub">完成(万)</th><th class="th-sub">完成率</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="unit in byUnit" :key="unit.id">
+            <td class="td-name">{{ unit.name }}</td>
+            <template v-for="m in ['contract','revenue','payment']" :key="m">
+              <td>{{ fmt(unit.metrics[m]?.annual_target) }}</td>
+              <td>{{ fmt(unit.metrics[m]?.ytd_actual) }}</td>
+              <td><span class="rate-badge" :class="rateClass(unit.metrics[m]?.annual_rate ?? 0)">{{ unit.metrics[m]?.annual_rate ?? 0 }}%</span></td>
+            </template>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr class="total-row">
+            <td>合计</td>
+            <template v-for="kpi in centerKpis" :key="kpi.metric">
+              <td>{{ fmt(kpi.annual) }}</td>
+              <td>{{ fmt(kpi.ytd) }}</td>
+              <td><span class="rate-badge" :class="rateClass(kpi.rate)">{{ kpi.rate }}%</span></td>
+            </template>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
     <!-- Heatmap + Bar -->
     <div class="two-col" v-if="data">
       <div class="card">
@@ -159,6 +198,20 @@ function goToDivision(unit) {
 </template>
 
 <style scoped>
+.summary-table-wrap { border-radius:10px; overflow:hidden; border:1px solid var(--bg-border); }
+.summary-table { width:100%; border-collapse:collapse; font-size:12px; }
+.summary-table th { background:var(--bg-border); color:var(--text-sec); font-size:11px; font-weight:600; padding:8px 12px; text-align:center; }
+.summary-table th:first-child { text-align:left; }
+.th-group { border-left:1px solid rgba(255,255,255,.06); letter-spacing:.5px; }
+.th-sub { font-weight:400; font-size:10px; border-left:1px solid rgba(255,255,255,.04); }
+.summary-table td { padding:9px 12px; border-top:1px solid var(--bg-border); color:var(--text-main); font-family:var(--mono); text-align:center; }
+.summary-table .td-name { font-family:inherit; color:var(--text-sec); text-align:left; }
+.total-row td { font-weight:700; background:rgba(255,255,255,.03); border-top:2px solid var(--bg-border); }
+.rate-badge { font-size:11px; font-weight:600; padding:2px 6px; border-radius:4px; }
+.rate-badge.good { color:var(--green); background:rgba(16,185,129,.12); }
+.rate-badge.warn { color:var(--amber); background:rgba(245,158,11,.12); }
+.rate-badge.bad  { color:var(--red);   background:rgba(239,68,68,.12); }
+
 .kpi-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; margin-bottom: 16px; }
 .kpi-card { background: var(--bg-card); border: 1px solid var(--bg-border); border-radius: 10px; padding: 16px 18px; position: relative; overflow: hidden; transition: border-color .2s; }
 .kpi-card:hover { border-color: var(--accent); }

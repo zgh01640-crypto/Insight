@@ -28,6 +28,8 @@ onMounted(load)
 watch([() => store.year, month], load)
 
 function rateClass(r) { return r >= 80 ? 'good' : r >= 60 ? 'warn' : 'bad' }
+function yoyClass(v) { if (v == null) return 'td-na'; return v >= 0 ? 'yoy-up' : 'yoy-down' }
+function fmtYoy(v) { if (v == null) return '—'; return (v >= 0 ? '+' : '') + v + '%' }
 function fmt(n) {
   const v = Number(n)
   return isNaN(v) ? '—' : v.toLocaleString('zh-CN')
@@ -108,24 +110,51 @@ function makeBarOption(metric) {
           <tr>
             <th>事业部</th>
             <th>合同（万元）</th>
+            <th>合同目标</th>
+            <th>合同完成率</th>
+            <th>合同同比</th>
             <th>收入（万元）</th>
+            <th>收入目标</th>
+            <th>收入完成率</th>
+            <th>收入同比</th>
             <th>回款（万元）</th>
+            <th>回款目标</th>
+            <th>回款完成率</th>
+            <th>回款同比</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="div in data.divisions" :key="div.business_unit_id">
             <td class="td-name">{{ div.business_unit_name }}</td>
             <td>{{ fmt(div.metrics.contract?.month_actual) }}</td>
+            <td class="td-target">{{ fmt(div.metrics.contract?.month_target) }}</td>
+            <td><span :class="rateClass(div.metrics.contract?.rate ?? 0)">{{ div.metrics.contract?.rate ?? 0 }}%</span></td>
+            <td><span :class="yoyClass(div.metrics.contract?.yoy_rate)">{{ fmtYoy(div.metrics.contract?.yoy_rate) }}</span></td>
             <td>{{ fmt(div.metrics.revenue?.month_actual) }}</td>
+            <td class="td-target">{{ fmt(div.metrics.revenue?.month_target) }}</td>
+            <td><span :class="rateClass(div.metrics.revenue?.rate ?? 0)">{{ div.metrics.revenue?.rate ?? 0 }}%</span></td>
+            <td><span :class="yoyClass(div.metrics.revenue?.yoy_rate)">{{ fmtYoy(div.metrics.revenue?.yoy_rate) }}</span></td>
             <td>{{ fmt(div.metrics.payment?.month_actual) }}</td>
+            <td class="td-target">{{ fmt(div.metrics.payment?.month_target) }}</td>
+            <td><span :class="rateClass(div.metrics.payment?.rate ?? 0)">{{ div.metrics.payment?.rate ?? 0 }}%</span></td>
+            <td><span :class="yoyClass(div.metrics.payment?.yoy_rate)">{{ fmtYoy(div.metrics.payment?.yoy_rate) }}</span></td>
           </tr>
         </tbody>
         <tfoot>
           <tr class="total-row">
             <td>合计</td>
             <td>{{ fmt(centerMap.contract?.month_actual) }}</td>
+            <td class="td-target">{{ fmt(centerMap.contract?.month_target) }}</td>
+            <td><span :class="rateClass(centerMap.contract?.rate ?? 0)">{{ centerMap.contract?.rate ?? 0 }}%</span></td>
+            <td><span :class="yoyClass(centerMap.contract?.yoy_rate)">{{ fmtYoy(centerMap.contract?.yoy_rate) }}</span></td>
             <td>{{ fmt(centerMap.revenue?.month_actual) }}</td>
+            <td class="td-target">{{ fmt(centerMap.revenue?.month_target) }}</td>
+            <td><span :class="rateClass(centerMap.revenue?.rate ?? 0)">{{ centerMap.revenue?.rate ?? 0 }}%</span></td>
+            <td><span :class="yoyClass(centerMap.revenue?.yoy_rate)">{{ fmtYoy(centerMap.revenue?.yoy_rate) }}</span></td>
             <td>{{ fmt(centerMap.payment?.month_actual) }}</td>
+            <td class="td-target">{{ fmt(centerMap.payment?.month_target) }}</td>
+            <td><span :class="rateClass(centerMap.payment?.rate ?? 0)">{{ centerMap.payment?.rate ?? 0 }}%</span></td>
+            <td><span :class="yoyClass(centerMap.payment?.yoy_rate)">{{ fmtYoy(centerMap.payment?.yoy_rate) }}</span></td>
           </tr>
         </tfoot>
       </table>
@@ -181,6 +210,13 @@ function makeBarOption(metric) {
 }
 .summary-table td { padding:10px 16px; border-top:1px solid var(--bg-border); color:var(--text-main); font-family:var(--mono); }
 .summary-table .td-name { font-family:inherit; color:var(--text-sec); }
+.summary-table .td-target { color:var(--text-dim); font-size:12px; }
+.summary-table .good { color:var(--green); font-weight:600; }
+.summary-table .warn { color:var(--amber); font-weight:600; }
+.summary-table .bad  { color:var(--red);   font-weight:600; }
+.summary-table .yoy-up   { color:var(--green); font-size:12px; }
+.summary-table .yoy-down { color:var(--red);   font-size:12px; }
+.summary-table .td-na    { color:var(--text-dim); font-size:12px; }
 .total-row td { font-weight:700; background:rgba(255,255,255,.03); border-top:2px solid var(--bg-border); }
 
 .section-label { font-size:11px; letter-spacing:1.5px; color:var(--text-sec); text-transform:uppercase; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
