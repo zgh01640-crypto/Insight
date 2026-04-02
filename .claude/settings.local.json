@@ -29,7 +29,24 @@
       "Bash(docker exec:*)",
       "Bash(docker-compose stop:*)",
       "Bash(docker rmi:*)",
-      "Bash(python make_template.py)"
+      "Bash(python make_template.py)",
+      "Bash(docker restart:*)",
+      "Bash(python make_actuals_template.py)",
+      "Bash(rm make_actuals_template.py)",
+      "Bash(curl -s http://localhost:8010/api/dashboard/opportunity-support?year=2026)",
+      "Bash(python -m json.tool)",
+      "Bash(docker-compose restart:*)",
+      "Bash(curl -s \"http://localhost:8010/api/opportunities?year=2026&quarter=Q1&limit=20\")",
+      "Bash(curl -s \"http://localhost:8010/api/opportunities/?year=2026&quarter=Q1&limit=5\")",
+      "Bash(find /d/ClaudeCode/Insight -type f -name *.md ! -path */node_modules/*)",
+      "Bash(find /d/ClaudeCode/Insight/frontend/src -type f \\\\\\(-name *.vue -o -name *.js \\\\\\))",
+      "Bash(curl -s \"http://localhost:8010/api/dashboard/monthly?year=2026&month=3\")",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d['data']['divisions'][0], indent=2\\)\\)\")",
+      "Bash(python -m py_compile backend/services/importer.py)",
+      "Bash(python -m py_compile backend/models.py)",
+      "Bash(python -m py_compile backend/routers/ai.py)",
+      "Bash(docker-compose down:*)",
+      "Bash(docker-compose logs:*)"
     ]
   }
 }

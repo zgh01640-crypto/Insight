@@ -411,18 +411,25 @@ async def ai_parse_file(file: UploadFile = File(...)):
         import_type = "opportunities"
         type_label  = "商机数据"
     else:
-        return ApiResponse(success=False,
-                           message=f"无法识别文件格式，列名：{sorted(cols)}")
+        return {
+            "success": False,
+            "message": f"无法识别文件格式，列名：{sorted(cols)}",
+            "data": None,
+        }
 
     pending_id = str(uuid.uuid4())[:8]
     _pending_imports[pending_id] = {"type": import_type, "df": df, "filename": file.filename}
 
     sample = df.head(3).to_dict(orient="records")
-    return ApiResponse(data={
-        "pending_id":  pending_id,
-        "import_type": type_label,
-        "filename":    file.filename,
-        "row_count":   len(df),
-        "columns":     df.columns.tolist(),
-        "sample_rows": sample,
-    })
+    return {
+        "success": True,
+        "message": "",
+        "data": {
+            "pending_id":  pending_id,
+            "import_type": type_label,
+            "filename":    file.filename,
+            "row_count":   len(df),
+            "columns":     df.columns.tolist(),
+            "sample_rows": sample,
+        }
+    }

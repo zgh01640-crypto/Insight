@@ -126,16 +126,21 @@ async function handleFile(file) {
   fileUploading.value = true
   try {
     const res = await aiParseFile(file)
-    const sample = res.sample_rows.map(r => JSON.stringify(r)).join('\n')
+    if (!res.success) {
+      alert('文件解析失败：' + (res.message || '未知错误'))
+      return
+    }
+    const data = res.data
+    const sample = data.sample_rows.map(r => JSON.stringify(r)).join('\n')
     input.value =
-      `我上传了文件「${res.filename}」，类型：${res.import_type}，共 ${res.row_count} 行。\n` +
-      `列名：${res.columns.join('、')}\n` +
+      `我上传了文件「${data.filename}」，类型：${data.import_type}，共 ${data.row_count} 行。\n` +
+      `列名：${data.columns.join('、')}\n` +
       `前3行样本：\n${sample}\n\n` +
-      `pending_id=${res.pending_id}\n\n` +
+      `pending_id=${data.pending_id}\n\n` +
       `请确认数据无误后帮我导入数据库。`
     await send()
   } catch(err) {
-    console.error(err)
+    alert('上传文件出错：' + (err?.message || '网络错误'))
   } finally {
     fileUploading.value = false
     if (fileInputRef.value) fileInputRef.value.value = ''
