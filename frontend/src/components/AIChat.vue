@@ -126,13 +126,9 @@ async function selectFileDialog() {
 }
 
 async function handleAttachClick() {
-  alert('📎 点击上传按钮')
   const file = await selectFileDialog()
   if (file) {
-    alert(`✓ 文件已选择: ${file.name}`)
     await handleFile(file)
-  } else {
-    alert('❌ 没有选中文件')
   }
 }
 
@@ -156,30 +152,22 @@ async function handleFile(file) {
   try {
     console.log('Calling aiParseFile...')
     const res = await aiParseFile(file)
-    console.log('aiParseFile full response:', JSON.stringify(res, null, 2))
-    console.log('res type:', typeof res, 'is object:', res && typeof res === 'object')
-    console.log('res.success:', res?.success)
-    console.log('res.data:', res?.data)
-    console.log('res.data.sample_rows:', res?.data?.sample_rows)
+    console.log('aiParseFile response:', res)
 
     if (!res || typeof res !== 'object' || !res.success) {
-      const msg = res?.message || (typeof res === 'string' ? res : '未知错误')
-      alert('文件解析失败：' + msg)
+      const msg = res?.message || '文件解析失败'
+      alert('错误：' + msg)
       return
     }
 
     if (!res.data) {
-      alert('服务器返回数据无效：data 字段为空')
-      console.error('res:', res)
+      alert('服务器返回数据无效')
       return
     }
 
     const data = res.data
-    console.log('data object:', data)
-    console.log('data.sample_rows:', data.sample_rows, 'type:', typeof data.sample_rows)
-
     if (!Array.isArray(data.sample_rows)) {
-      alert('样本数据格式错误，期望数组但得到：' + typeof data.sample_rows)
+      alert('样本数据格式错误')
       return
     }
 
@@ -190,12 +178,10 @@ async function handleFile(file) {
       `前3行样本：\n${sample}\n\n` +
       `pending_id=${data.pending_id}\n\n` +
       `请确认数据无误后帮我导入数据库。`
-    console.log('About to send message...')
     await send()
   } catch(err) {
     console.error('Error in handleFile:', err)
-    console.error('Error stack:', err?.stack)
-    alert('上传文件出错：' + (err?.message || '网络错误，请检查浏览器控制台'))
+    alert('上传出错：' + (err?.message || '网络错误'))
   } finally {
     fileUploading.value = false
   }
