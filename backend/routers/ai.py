@@ -420,21 +420,32 @@ async def ai_parse_file(file: UploadFile = File(...)):
     pending_id = str(uuid.uuid4())[:8]
     _pending_imports[pending_id] = {"type": import_type, "df": df, "filename": file.filename}
 
-    # 转换示例行，确保所有值都是 JSON 可序列化的
+    # 转换示例行，确保所有值都是 JSON 可序列化的原生 Python 类型
     sample_df = df.head(3)
     sample = []
     for _, row in sample_df.iterrows():
-        sample.append({k: (v if pd.notna(v) else None) for k, v in row.items()})
+        row_dict = {}
+        for k, v in row.items():
+            if pd.isna(v):
+                row_dict[k] = None
+            elif isinstance(v, (int, float, str, bool)):
+                row_dict[k] = v
+            else:
+                # 处理 numpy 类型
+                row_dict[k] = str(v)
+        sample.append(row_dict)
 
-    return {
+    response = {
         "success": True,
         "message": "",
         "data": {
             "pending_id":  pending_id,
             "import_type": type_label,
             "filename":    file.filename,
-            "row_count":   len(df),
-            "columns":     df.columns.tolist(),
+            "row_count":   int(len(df)),  # 确保是 Python int
+            "columns":     [str(c) for c in df.columns],  # 确保是 Python str
             "sample_rows": sample,
         }
     }
+    print(f"[DEBUG] parse-file response: {json.dumps(response, ensure_ascii=False)[:500]}")
+    return response

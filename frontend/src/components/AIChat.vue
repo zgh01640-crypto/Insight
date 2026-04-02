@@ -129,21 +129,30 @@ async function handleFile(file) {
   try {
     console.log('Calling aiParseFile...')
     const res = await aiParseFile(file)
-    console.log('aiParseFile response:', res)
+    console.log('aiParseFile full response:', JSON.stringify(res, null, 2))
+    console.log('res type:', typeof res, 'is object:', res && typeof res === 'object')
+    console.log('res.success:', res?.success)
+    console.log('res.data:', res?.data)
+    console.log('res.data.sample_rows:', res?.data?.sample_rows)
 
-    if (!res || !res.success) {
-      alert('文件解析失败：' + (res?.message || '未知错误'))
+    if (!res || typeof res !== 'object' || !res.success) {
+      const msg = res?.message || (typeof res === 'string' ? res : '未知错误')
+      alert('文件解析失败：' + msg)
       return
     }
 
     if (!res.data) {
-      alert('服务器返回数据无效')
+      alert('服务器返回数据无效：data 字段为空')
+      console.error('res:', res)
       return
     }
 
     const data = res.data
-    if (!data.sample_rows || !Array.isArray(data.sample_rows)) {
-      alert('样本数据格式错误')
+    console.log('data object:', data)
+    console.log('data.sample_rows:', data.sample_rows, 'type:', typeof data.sample_rows)
+
+    if (!Array.isArray(data.sample_rows)) {
+      alert('样本数据格式错误，期望数组但得到：' + typeof data.sample_rows)
       return
     }
 
@@ -158,6 +167,7 @@ async function handleFile(file) {
     await send()
   } catch(err) {
     console.error('Error in handleFile:', err)
+    console.error('Error stack:', err?.stack)
     alert('上传文件出错：' + (err?.message || '网络错误，请检查浏览器控制台'))
   } finally {
     fileUploading.value = false
