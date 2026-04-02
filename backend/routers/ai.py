@@ -5,7 +5,7 @@ import tempfile
 import pandas as pd
 from datetime import date
 from fastapi import APIRouter, Depends, UploadFile, File
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from typing import List
 from openai import OpenAI
@@ -411,11 +411,13 @@ async def ai_parse_file(file: UploadFile = File(...)):
         import_type = "opportunities"
         type_label  = "商机数据"
     else:
-        return {
+        error_response = {
             "success": False,
             "message": f"无法识别文件格式，列名：{sorted(cols)}",
             "data": None,
         }
+        print(f"[DEBUG] File format error: {error_response['message']}")
+        return JSONResponse(content=error_response)
 
     pending_id = str(uuid.uuid4())[:8]
     _pending_imports[pending_id] = {"type": import_type, "df": df, "filename": file.filename}
@@ -448,4 +450,4 @@ async def ai_parse_file(file: UploadFile = File(...)):
         }
     }
     print(f"[DEBUG] parse-file response: {json.dumps(response, ensure_ascii=False)[:500]}")
-    return response
+    return JSONResponse(content=response)
