@@ -86,6 +86,91 @@ const barOption = computed(() => {
 function goToDivision(unit) {
   router.push(`/division/${unit.id}`)
 }
+
+// ── AI 经营分析报告 ──────────────────────────────────
+const report      = ref('')
+const generating  = ref(false)
+const reportModel = ref('deepseek')
+
+const REPORT_MODELS = [
+  { id: 'deepseek', label: 'DeepSeek' },
+  { id: 'kimi',     label: 'Kimi' },
+  { id: 'glm',      label: 'GLM' },
+  { id: 'claude',   label: 'Claude Sonnet' },
+]
+
+const reportModelLabel = computed(() =>
+  REPORT_MODELS.find(m => m.id === reportModel.value)?.label || reportModel.value
+)
+
+async function generateReport() {
+  report.value = ''
+  generating.value = true
+  const prompt = `请根据当前数据，生成${store.year}年度产品中心经营分析报告。请严格按以下格式输出：
+
+## 总体情况
+产品中心合同/收入/回款的年度目标与YTD完成情况，达成率评价。
+
+## 各事业部分析
+逐个分析4个事业部，每个事业部说明三项指标的完成情况，突出最强和最弱的指标。
+
+## 主要风险
+列出达成率低于60%的事业部/指标，以及商机覆盖不足的领域。
+
+## 建议
+针对主要风险，给出具体可执行的行动建议。`
+
+  try {
+    const res = await fetch('/api/ai/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: prompt }],
+        year: store.year,
+        model_id: reportModel.value,
+      }),
+    })
+    const reader  = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop()
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const payload = line.slice(6)
+        if (payload === '[DONE]') break
+        try {
+          const chunk = JSON.parse(payload)
+          if (chunk.text) report.value += chunk.text
+        } catch {}
+      }
+    }
+  } catch {
+    report.value = '> 生成失败，请检查 API Key 配置或网络连接。'
+  } finally {
+    generating.value = false
+  }
+}
+
+// Markdown 渲染（同 AIChat.vue）
+function renderMd(text) {
+  if (!text) return ''
+  return text
+    .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+    .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+    .replace(/^### (.+)$/gm, '<div class="md-h3">$1</div>')
+    .replace(/^## (.+)$/gm, '<div class="md-h2">$1</div>')
+    .replace(/^# (.+)$/gm, '<div class="md-h1">$1</div>')
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .replace(/^[-•] (.+)$/gm, '<div class="md-li">$1</div>')
+    .replace(/^\d+\. (.+)$/gm, '<div class="md-oli">$1</div>')
+    .replace(/^---$/gm, '<hr class="md-hr">')
+    .replace(/\n/g, '<br>')
+}
 </script>
 
 <template>
@@ -152,6 +237,32 @@ function goToDivision(unit) {
       </table>
     </div>
 
+    <!-- AI 经营分析报告 -->
+    <div class="ai-report-block" v-if="data">
+      <div class="report-header">
+        <div class="report-header-left">
+          <div class="card-title" style="margin-bottom:0">AI 经营分析报告</div>
+        </div>
+        <div class="report-controls">
+          <select v-model="reportModel" class="model-select" :disabled="generating">
+            <option v-for="m in REPORT_MODELS" :key="m.id" :value="m.id">{{ m.label }}</option>
+          </select>
+          <button class="gen-btn" @click="generateReport" :disabled="generating">
+            <span v-if="generating">
+              <span class="dot-wave"><span/><span/><span/></span> 生成中
+            </span>
+            <span v-else>生成报告</span>
+          </button>
+          <button v-if="report" class="clear-btn" @click="report = ''">清空</button>
+        </div>
+      </div>
+      <div v-if="generating && !report" class="report-thinking">
+        <span class="dot-wave"><span/><span/><span/></span>
+        {{ reportModelLabel }} 正在分析数据，请稍候...
+      </div>
+      <div v-if="report" class="report-content" v-html="renderMd(report)" />
+    </div>
+
     <!-- Heatmap + Bar -->
     <div class="two-col" v-if="data">
       <div class="card">
@@ -198,6 +309,34 @@ function goToDivision(unit) {
 </template>
 
 <style scoped>
+.ai-report-block { margin-bottom: 16px; background:var(--bg-card); border:1px solid var(--bg-border); border-radius:10px; padding:16px 20px; }
+.report-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+.report-header-left { display:flex; align-items:center; gap:8px; }
+.report-controls { display:flex; align-items:center; gap:8px; }
+.model-select { font-size:11px; padding:3px 8px; border-radius:6px; background:rgba(240,165,0,.1); color:var(--accent); border:1px solid rgba(240,165,0,.25); outline:none; cursor:pointer; }
+.model-select:disabled { opacity:.5; }
+.model-select option { background:var(--bg-card); color:var(--text-main); }
+.gen-btn { font-size:12px; padding:5px 14px; border-radius:6px; border:none; cursor:pointer; background:var(--accent); color:#000; font-weight:600; transition:opacity .15s; display:flex; align-items:center; gap:6px; }
+.gen-btn:disabled { opacity:.5; cursor:not-allowed; }
+.gen-btn:not(:disabled):hover { opacity:.85; }
+.clear-btn { font-size:11px; padding:5px 10px; border-radius:6px; border:1px solid var(--bg-border); background:transparent; color:var(--text-sec); cursor:pointer; transition:color .15s; }
+.clear-btn:hover { color:var(--red); border-color:var(--red); }
+.report-thinking { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--accent); padding:12px 0; }
+.report-content { font-size:13px; line-height:1.8; color:var(--text-main); padding-top:4px; }
+.report-content :deep(.md-h1) { font-size:16px; font-weight:700; margin:12px 0 6px; }
+.report-content :deep(.md-h2) { font-size:14px; font-weight:700; margin:14px 0 6px; color:var(--accent); padding-bottom:4px; border-bottom:1px solid var(--bg-border); }
+.report-content :deep(.md-h3) { font-size:13px; font-weight:600; margin:8px 0 4px; color:var(--text-sec); }
+.report-content :deep(.md-li) { padding-left:14px; position:relative; margin:3px 0; }
+.report-content :deep(.md-li)::before { content:'•'; position:absolute; left:2px; color:var(--accent); }
+.report-content :deep(.md-oli) { padding-left:4px; margin:3px 0; }
+.report-content :deep(.inline-code) { background:rgba(255,255,255,.1); padding:1px 5px; border-radius:4px; font-family:monospace; font-size:12px; }
+.report-content :deep(.md-hr) { border:none; border-top:1px solid var(--bg-border); margin:10px 0; }
+.dot-wave { display:inline-flex; gap:3px; align-items:center; }
+.dot-wave span { width:5px; height:5px; border-radius:50%; background:var(--accent); display:inline-block; animation:dotBounce 1.2s infinite ease-in-out; }
+.dot-wave span:nth-child(2) { animation-delay:.2s; }
+.dot-wave span:nth-child(3) { animation-delay:.4s; }
+@keyframes dotBounce { 0%,80%,100% { transform:translateY(0);opacity:.4; } 40% { transform:translateY(-5px);opacity:1; } }
+
 .summary-table-wrap { border-radius:10px; overflow:hidden; border:1px solid var(--bg-border); }
 .summary-table { width:100%; border-collapse:collapse; font-size:12px; }
 .summary-table th { background:var(--bg-border); color:var(--text-sec); font-size:11px; font-weight:600; padding:8px 12px; text-align:center; }
