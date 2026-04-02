@@ -1,20 +1,29 @@
 import os
 import json
+import uuid
+import tempfile
+import pandas as pd
 from datetime import date
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List
 from openai import OpenAI
-from sqlmodel import Session
+from sqlmodel import Session, select
 from database import get_session
+from models import ImportBatch, MonthlyActual, Opportunity
+from schemas import ApiResponse
 from routers.dashboard import (
     overview, division_detail, quarterly_dashboard,
     monthly_dashboard, opportunity_support,
 )
 from routers.opportunities import list_opportunities
+from services.importer import import_monthly_actuals, import_opportunities
 
 router = APIRouter()
+
+# ── 文件解析缓存 ──────────────────────────────────────
+_pending_imports: dict = {}  # {pending_id: {type, df, filename}}
 
 # ── 多模型配置 ────────────────────────────────────────
 MODELS = {
@@ -152,6 +161,57 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "import_actuals",
+            "description": "将用户上传的月度完成数据文件写入数据库。只在用户确认后调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pending_id": {
+                        "type": "string",
+                        "description": "文件解析后返回的 pending_id"
+                    }
+                },
+                "required": ["pending_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "import_opportunities",
+            "description": "将用户上传的商机数据文件写入数据库。只在用户确认后调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pending_id": {
+                        "type": "string",
+                        "description": "文件解析后返回的 pending_id"
+                    }
+                },
+                "required": ["pending_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "rollback_import",
+            "description": "撤销一次导入操作，删除该批次写入的数据。月度完成数据中被覆盖的旧值无法恢复。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "batch_id": {
+                        "type": "integer",
+                        "description": "导入批次ID，由 import_actuals 或 import_opportunities 工具返回"
+                    }
+                },
+                "required": ["batch_id"]
+            }
+        }
+    },
 ]
 
 # ── Tool 执行 ─────────────────────────────────────────
@@ -175,6 +235,73 @@ def _execute_tool(name: str, args: dict, session: Session) -> str:
                 stage=args.get("stage"), status=args.get("status"),
                 session=session,
             )
+        elif name == "import_actuals":
+            pending = _pending_imports.pop(args["pending_id"], None)
+            if not pending:
+                return json.dumps({"error": "找不到对应的待导入数据，可能已过期"}, ensure_ascii=False)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+                pending["df"].to_excel(tmp.name, index=False)
+                path = tmp.name
+            try:
+                batch = import_monthly_actuals(path, pending["filename"], session)
+            finally:
+                os.unlink(path)
+            failures = json.loads(batch.fail_detail) if batch.fail_detail else []
+            return json.dumps({
+                "batch_id": batch.id,
+                "total": batch.total_rows,
+                "success": batch.success_rows,
+                "fail": batch.fail_rows,
+                "failures": failures[:10],
+                "overwrite": getattr(batch, '_overwrite_count', 0),
+            }, ensure_ascii=False)
+        elif name == "import_opportunities":
+            pending = _pending_imports.pop(args["pending_id"], None)
+            if not pending:
+                return json.dumps({"error": "找不到对应的待导入数据，可能已过期"}, ensure_ascii=False)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+                pending["df"].to_excel(tmp.name, index=False)
+                path = tmp.name
+            try:
+                batch = import_opportunities(path, pending["filename"], session)
+            finally:
+                os.unlink(path)
+            failures = json.loads(batch.fail_detail) if batch.fail_detail else []
+            return json.dumps({
+                "batch_id": batch.id,
+                "total": batch.total_rows,
+                "success": batch.success_rows,
+                "fail": batch.fail_rows,
+                "failures": failures[:10],
+            }, ensure_ascii=False)
+        elif name == "rollback_import":
+            batch_id = args["batch_id"]
+            batch = session.get(ImportBatch, batch_id)
+            if not batch:
+                return json.dumps({"error": f"找不到批次 {batch_id}"}, ensure_ascii=False)
+            if batch.import_type == "monthly_actual":
+                rows = session.exec(
+                    select(MonthlyActual).where(MonthlyActual.import_batch_id == batch_id)
+                ).all()
+                deleted = len(rows)
+                for r in rows:
+                    session.delete(r)
+                session.commit()
+                return json.dumps({
+                    "deleted": deleted,
+                    "warning": "仅删除本批次新增的记录，被覆盖的旧数据无法恢复"
+                }, ensure_ascii=False)
+            elif batch.import_type == "opportunity":
+                rows = session.exec(
+                    select(Opportunity).where(Opportunity.import_batch_id == batch_id)
+                ).all()
+                deleted = len(rows)
+                for r in rows:
+                    session.delete(r)
+                session.commit()
+                return json.dumps({"deleted": deleted}, ensure_ascii=False)
+            else:
+                return json.dumps({"error": f"不支持撤销此类型：{batch.import_type}"}, ensure_ascii=False)
         else:
             return json.dumps({"error": f"未知工具: {name}"}, ensure_ascii=False)
         return json.dumps(result.data, ensure_ascii=False, default=str)
@@ -258,3 +385,44 @@ def chat(req: ChatRequest, session: Session = Depends(get_session)):
             break
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# ── 文件解析端点 ───────────────────────────────────────
+@router.post("/parse-file")
+async def ai_parse_file(file: UploadFile = File(...)):
+    """解析上传的 Excel/CSV 文件，自动识别类型（月度实绩/商机），返回摘要不写库"""
+    suffix = os.path.splitext(file.filename)[1] or ".xlsx"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(await file.read())
+        path = tmp.name
+    try:
+        df = pd.read_excel(path) if suffix != ".csv" else pd.read_csv(path)
+    finally:
+        os.unlink(path)
+
+    cols = set(df.columns.tolist())
+    actuals_cols = {"年份", "月份", "事业部", "指标类型", "完成值"}
+    opp_cols     = {"商机名称", "所属事业部", "指标类型", "所属年度", "所属季度"}
+
+    if actuals_cols.issubset(cols):
+        import_type = "monthly_actuals"
+        type_label  = "月度完成数据"
+    elif opp_cols.issubset(cols):
+        import_type = "opportunities"
+        type_label  = "商机数据"
+    else:
+        return ApiResponse(success=False,
+                           message=f"无法识别文件格式，列名：{sorted(cols)}")
+
+    pending_id = str(uuid.uuid4())[:8]
+    _pending_imports[pending_id] = {"type": import_type, "df": df, "filename": file.filename}
+
+    sample = df.head(3).to_dict(orient="records")
+    return ApiResponse(data={
+        "pending_id":  pending_id,
+        "import_type": type_label,
+        "filename":    file.filename,
+        "row_count":   len(df),
+        "columns":     df.columns.tolist(),
+        "sample_rows": sample,
+    })

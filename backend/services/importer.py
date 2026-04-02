@@ -142,6 +142,7 @@ def import_monthly_actuals(filepath: str, filename: str, session: Session) -> Im
     errors = []
     success = 0
     overwrite_count = 0
+    actuals_list = []  # 收集所有被处理的 MonthlyActual 对象
 
     for idx, row in df.iterrows():
         lineno = idx + 2
@@ -200,7 +201,77 @@ def import_monthly_actuals(filepath: str, filename: str, session: Session) -> Im
             ))
         success += 1
 
-    session.commit()
+# ── Monthly Actual Import ─────────────────────────────
+def import_monthly_actuals(filepath: str, filename: str, session: Session) -> ImportBatch:
+    df = _read_file(filepath, filename)
+    unit_map = _get_unit_map(session)
+    required = ["年份", "月份", "事业部", "指标类型", "完成值"]
+    errors = []
+    success = 0
+    overwrite_count = 0
+    actuals_list = []  # 收集所有被处理的 MonthlyActual 对象
+
+    for idx, row in df.iterrows():
+        lineno = idx + 2
+        row = row.fillna("")
+        missing = [c for c in required if not str(row.get(c, "")).strip()]
+        if missing:
+            errors.append({"row": lineno, "reason": f"缺少必填字段: {', '.join(missing)}"})
+            continue
+        try:
+            year = int(row["年份"])
+            assert 2020 <= year <= 2040
+        except Exception:
+            errors.append({"row": lineno, "reason": "年份格式错误"})
+            continue
+        try:
+            month = int(row["月份"])
+            assert 1 <= month <= 12
+        except Exception:
+            errors.append({"row": lineno, "reason": "月份格式错误（需1-12整数）"})
+            continue
+        unit_name = str(row["事业部"]).strip()
+        if unit_name not in unit_map:
+            errors.append({"row": lineno, "reason": f"事业部不存在: {unit_name}"})
+            continue
+        metric_zh = str(row["指标类型"]).strip()
+        if metric_zh not in METRIC_MAP:
+            errors.append({"row": lineno, "reason": f"指标类型错误: {metric_zh}"})
+            continue
+        try:
+            amount = float(row["完成值"])
+            assert amount >= 0
+        except Exception:
+            errors.append({"row": lineno, "reason": "完成值必须为非负数"})
+            continue
+
+        metric = METRIC_MAP[metric_zh]
+        unit_id = unit_map[unit_name]
+        existing = session.exec(
+            select(MonthlyActual).where(
+                MonthlyActual.year == year,
+                MonthlyActual.month == month,
+                MonthlyActual.business_unit_id == unit_id,
+                MonthlyActual.metric_type == metric,
+            )
+        ).first()
+        if existing:
+            existing.actual_amount = amount
+            existing.updated_at = datetime.utcnow()
+            overwrite_count += 1
+            actuals_list.append(existing)
+        else:
+            ma = MonthlyActual(
+                year=year, month=month,
+                business_unit_id=unit_id,
+                metric_type=metric,
+                actual_amount=amount,
+            )
+            session.add(ma)
+            actuals_list.append(ma)
+        success += 1
+
+    # 先创建 ImportBatch 并 flush 得到 ID
     batch = ImportBatch(
         import_type="monthly_actual",
         filename=filename,
@@ -210,6 +281,12 @@ def import_monthly_actuals(filepath: str, filename: str, session: Session) -> Im
         fail_detail=json.dumps(errors, ensure_ascii=False),
     )
     session.add(batch)
+    session.flush()  # 获得 batch.id
+
+    # 给所有处理过的 MonthlyActual 记录赋值 import_batch_id
+    for actual in actuals_list:
+        actual.import_batch_id = batch.id
+
     session.commit()
     session.refresh(batch)
     return batch
@@ -222,6 +299,7 @@ def import_opportunities(filepath: str, filename: str, session: Session) -> Impo
     required = ["商机名称", "所属事业部", "指标类型", "所属年度", "所属季度", "预计金额（万元）", "商机阶段", "商机状态"]
     errors = []
     success = 0
+    opps_list = []  # 收集所有被创建的 Opportunity 对象
 
     for idx, row in df.iterrows():
         lineno = idx + 2
@@ -270,7 +348,7 @@ def import_opportunities(filepath: str, filename: str, session: Session) -> Impo
             except Exception:
                 pass  # optional field, skip if bad
 
-        session.add(Opportunity(
+        opp = Opportunity(
             name=str(row["商机名称"]).strip(),
             business_unit_id=unit_map[unit_name],
             metric_type=METRIC_MAP[metric_zh],
@@ -279,10 +357,12 @@ def import_opportunities(filepath: str, filename: str, session: Session) -> Impo
             estimated_date=est_date,
             stage=stage, status=status,
             notes=str(row.get("备注", "")).strip() or None,
-        ))
+        )
+        session.add(opp)
+        opps_list.append(opp)
         success += 1
 
-    session.commit()
+    # 先创建 ImportBatch 并 flush 得到 ID
     batch = ImportBatch(
         import_type="opportunity",
         filename=filename,
@@ -292,6 +372,12 @@ def import_opportunities(filepath: str, filename: str, session: Session) -> Impo
         fail_detail=json.dumps(errors, ensure_ascii=False),
     )
     session.add(batch)
+    session.flush()  # 获得 batch.id
+
+    # 给所有创建的 Opportunity 记录赋值 import_batch_id
+    for opp in opps_list:
+        opp.import_batch_id = batch.id
+
     session.commit()
     session.refresh(batch)
     return batch

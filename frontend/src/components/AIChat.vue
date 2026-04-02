@@ -1,6 +1,7 @@
 <script setup>
 import { ref, nextTick, computed } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { aiParseFile } from '@/api'
 
 const store    = useAppStore()
 const open     = ref(false)
@@ -10,6 +11,8 @@ const messages = ref([])
 const bodyRef  = ref(null)
 const chatWidth = ref(440)
 const selectedModel = ref('deepseek')
+const fileUploading = ref(false)
+const fileInputRef = ref(null)
 const availableModels = ref([
   { id: 'deepseek', label: 'DeepSeek',      model: 'deepseek-chat' },
   { id: 'kimi',     label: 'Kimi',          model: 'kimi-k2.5' },
@@ -106,7 +109,38 @@ function clearMessages() {
   messages.value = []
 }
 
-// Markdown 渲染（含表格）
+async function handleFileSelect(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  await handleFile(file)
+}
+
+function onFileDrop(e) {
+  e.preventDefault()
+  const file = e.dataTransfer.files?.[0]
+  if (!file) return
+  handleFile(file)
+}
+
+async function handleFile(file) {
+  fileUploading.value = true
+  try {
+    const res = await aiParseFile(file)
+    const sample = res.sample_rows.map(r => JSON.stringify(r)).join('\n')
+    input.value =
+      `我上传了文件「${res.filename}」，类型：${res.import_type}，共 ${res.row_count} 行。\n` +
+      `列名：${res.columns.join('、')}\n` +
+      `前3行样本：\n${sample}\n\n` +
+      `pending_id=${res.pending_id}\n\n` +
+      `请确认数据无误后帮我导入数据库。`
+    await send()
+  } catch(err) {
+    console.error(err)
+  } finally {
+    fileUploading.value = false
+    if (fileInputRef.value) fileInputRef.value.value = ''
+  }
+}
 function renderMd(text) {
   if (!text) return ''
   const codeBlocks = []
@@ -179,7 +213,7 @@ function renderMd(text) {
       </div>
 
       <!-- 消息区 -->
-      <div class="chat-body" ref="bodyRef">
+      <div class="chat-body" ref="bodyRef" @dragover.prevent @drop.prevent="onFileDrop">
         <div v-if="!messages.length" class="chat-empty">
           <div class="empty-icon">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".4">
@@ -209,6 +243,8 @@ function renderMd(text) {
 
       <!-- 输入区 -->
       <div class="chat-input">
+        <input type="file" ref="fileInputRef" accept=".xlsx,.xls,.csv"
+               style="display:none" @change="handleFileSelect" />
         <textarea
           v-model="input"
           placeholder="输入问题，Enter 发送，Shift+Enter 换行"
@@ -216,6 +252,10 @@ function renderMd(text) {
           @keydown="onKeydown"
           :disabled="thinking"
         />
+        <button class="attach-btn" @click="fileInputRef?.click()"
+                :disabled="fileUploading || thinking" title="上传 Excel 文件">
+          {{ fileUploading ? '⏳' : '📎' }}
+        </button>
         <button @click="send" :disabled="thinking || !input.trim()" class="send-btn">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
             <path d="M2 21l21-9L2 3v7l15 2-15 2z"/>
@@ -412,6 +452,15 @@ export default {
 }
 .chat-input textarea:focus { border-color: var(--accent, #f0a500); }
 .chat-input textarea:disabled { opacity: .5; }
+
+.attach-btn {
+  width: 36px; height: 36px; border: none; background: none; cursor: pointer;
+  font-size: 18px; opacity: 0.7; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity .15s; flex-shrink: 0;
+}
+.attach-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.attach-btn:not(:disabled):hover { opacity: 1; }
 
 .send-btn {
   width: 36px; height: 36px; border-radius: 10px; border: none; cursor: pointer;

@@ -50,6 +50,9 @@ export const saveReport    = (data)     => http.post('/reports/', data)
 export const getReport     = (id)       => http.get(`/reports/${id}`)
 export const deleteReport  = (id)       => http.delete(`/reports/${id}`)
 
+// ── AI 聊天文件导入 ───────────────────────────────────
+export const aiParseFile   = (file)     => _upload('/ai/parse-file', file)
+
 function _upload(url, file) {
   const fd = new FormData()
   fd.append('file', file)

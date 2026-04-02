@@ -70,6 +70,7 @@ class Opportunity(SQLModel, table=True):
     stage: str = Field(default="线索")   # 线索/立项/报价/签约跟进/已完成
     status: str = Field(default="进行中") # 进行中/已赢单/已输单/已搁置
     notes: Optional[str] = None
+    import_batch_id: Optional[int] = Field(default=None, foreign_key="import_batch.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
