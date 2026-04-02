@@ -416,7 +416,6 @@ async def ai_parse_file(file: UploadFile = File(...)):
             "message": f"无法识别文件格式，列名：{sorted(cols)}",
             "data": None,
         }
-        print(f"[DEBUG] File format error: {error_response['message']}")
         return JSONResponse(content=error_response)
 
     pending_id = str(uuid.uuid4())[:8]
@@ -449,5 +448,4 @@ async def ai_parse_file(file: UploadFile = File(...)):
             "sample_rows": sample,
         }
     }
-    print(f"[DEBUG] parse-file response: {json.dumps(response, ensure_ascii=False)[:500]}")
     return JSONResponse(content=response)
