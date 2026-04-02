@@ -12,7 +12,6 @@ const bodyRef  = ref(null)
 const chatWidth = ref(440)
 const selectedModel = ref('deepseek')
 const fileUploading = ref(false)
-const fileInputRef = ref(null)
 const availableModels = ref([
   { id: 'deepseek', label: 'DeepSeek',      model: 'deepseek-chat' },
   { id: 'kimi',     label: 'Kimi',          model: 'kimi-k2.5' },
@@ -109,15 +108,38 @@ function clearMessages() {
   messages.value = []
 }
 
-async function handleFileSelect(e) {
-  alert('✓ 文件选择事件被触发')
-  const file = e.target.files?.[0]
-  console.log('handleFileSelect triggered, file:', file)
-  if (!file) {
+async function selectFileDialog() {
+  return new Promise((resolve) => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.xlsx,.xls,.csv'
+    input.addEventListener('change', (e) => {
+      const file = e.target.files?.[0]
+      if (file) {
+        resolve(file)
+      } else {
+        resolve(null)
+      }
+    })
+    input.click()
+  })
+}
+
+async function handleAttachClick() {
+  alert('📎 点击上传按钮')
+  const file = await selectFileDialog()
+  if (file) {
+    alert(`✓ 文件已选择: ${file.name}`)
+    await handleFile(file)
+  } else {
     alert('❌ 没有选中文件')
-    return
   }
-  alert(`✓ 文件已选择: ${file.name}`)
+}
+
+async function handleFileSelect(e) {
+  console.log('handleFileSelect triggered, file:', e.target.files?.[0])
+  const file = e.target.files?.[0]
+  if (!file) return
   await handleFile(file)
 }
 
@@ -176,7 +198,6 @@ async function handleFile(file) {
     alert('上传文件出错：' + (err?.message || '网络错误，请检查浏览器控制台'))
   } finally {
     fileUploading.value = false
-    if (fileInputRef.value) fileInputRef.value.value = ''
   }
 }
 function renderMd(text) {
@@ -281,8 +302,6 @@ function renderMd(text) {
 
       <!-- 输入区 -->
       <div class="chat-input">
-        <input type="file" ref="fileInputRef" name="file" id="fileInput" accept=".xlsx,.xls,.csv"
-               style="display:none" @change="handleFileSelect" />
         <textarea
           v-model="input"
           placeholder="输入问题，Enter 发送，Shift+Enter 换行"
@@ -290,7 +309,7 @@ function renderMd(text) {
           @keydown="onKeydown"
           :disabled="thinking"
         />
-        <button class="attach-btn" @click="fileInputRef?.click()"
+        <button class="attach-btn" @click="handleAttachClick"
                 :disabled="fileUploading || thinking" title="上传 Excel 文件">
           {{ fileUploading ? '⏳' : '📎' }}
         </button>
