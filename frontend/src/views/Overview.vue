@@ -2,7 +2,8 @@
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
-import { getOverview } from '@/api'
+import { getOverview, getReports, saveReport, getReport, deleteReport } from '@/api'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { use } from 'echarts/core'
 import { BarChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
@@ -91,6 +92,40 @@ function goToDivision(unit) {
 const report      = ref('')
 const generating  = ref(false)
 const reportModel = ref('deepseek')
+const savedReports  = ref([])
+const showHistory   = ref(false)
+const saving        = ref(false)
+
+async function loadReports() {
+  const res = await getReports()
+  savedReports.value = res?.data || []
+}
+
+async function onSaveReport() {
+  if (!report.value) return
+  saving.value = true
+  const title = `${store.year}年度经营分析报告`
+  await saveReport({ year: store.year, title, content: report.value, model_id: reportModel.value })
+  ElMessage.success('报告已保存')
+  saving.value = false
+  await loadReports()
+  showHistory.value = true
+}
+
+async function onDeleteReport(id) {
+  await ElMessageBox.confirm('确认删除此报告？', '提示', { type: 'warning' })
+  await deleteReport(id)
+  ElMessage.success('已删除')
+  await loadReports()
+}
+
+async function viewReport(item) {
+  const res = await getReport(item.id)
+  report.value = res?.data?.content || ''
+  showHistory.value = false
+}
+
+onMounted(loadReports)
 
 const REPORT_MODELS = [
   { id: 'deepseek', label: 'DeepSeek' },
@@ -242,20 +277,36 @@ function renderMd(text) {
       <div class="report-header">
         <div class="report-header-left">
           <div class="card-title" style="margin-bottom:0">AI 经营分析报告</div>
+          <span v-if="savedReports.length" class="history-badge" @click="showHistory = !showHistory">
+            历史记录 {{ savedReports.length }}
+          </span>
         </div>
         <div class="report-controls">
           <select v-model="reportModel" class="model-select" :disabled="generating">
             <option v-for="m in REPORT_MODELS" :key="m.id" :value="m.id">{{ m.label }}</option>
           </select>
           <button class="gen-btn" @click="generateReport" :disabled="generating">
-            <span v-if="generating">
-              <span class="dot-wave"><span/><span/><span/></span> 生成中
-            </span>
+            <span v-if="generating"><span class="dot-wave"><span/><span/><span/></span> 生成中</span>
             <span v-else>生成报告</span>
+          </button>
+          <button v-if="report && !generating" class="save-btn" @click="onSaveReport" :disabled="saving">
+            {{ saving ? '保存中...' : '保存报告' }}
           </button>
           <button v-if="report" class="clear-btn" @click="report = ''">清空</button>
         </div>
       </div>
+
+      <!-- 历史记录列表 -->
+      <div v-if="showHistory && savedReports.length" class="history-panel">
+        <div v-for="item in savedReports" :key="item.id" class="history-item">
+          <div class="history-info" @click="viewReport(item)">
+            <span class="history-title">{{ item.title }}</span>
+            <span class="history-meta">{{ item.model_id }} · {{ item.created_at }}</span>
+          </div>
+          <button class="del-btn" @click.stop="onDeleteReport(item.id)">×</button>
+        </div>
+      </div>
+
       <div v-if="generating && !report" class="report-thinking">
         <span class="dot-wave"><span/><span/><span/></span>
         {{ reportModelLabel }} 正在分析数据，请稍候...
@@ -310,6 +361,20 @@ function renderMd(text) {
 
 <style scoped>
 .ai-report-block { margin-bottom: 16px; background:var(--bg-card); border:1px solid var(--bg-border); border-radius:10px; padding:16px 20px; }
+.history-badge { font-size:11px; padding:2px 8px; border-radius:10px; background:rgba(240,165,0,.15); color:var(--accent); cursor:pointer; border:1px solid rgba(240,165,0,.25); }
+.history-badge:hover { background:rgba(240,165,0,.25); }
+.save-btn { font-size:12px; padding:5px 12px; border-radius:6px; border:1px solid var(--accent); background:transparent; color:var(--accent); cursor:pointer; transition:background .15s; }
+.save-btn:not(:disabled):hover { background:rgba(240,165,0,.1); }
+.save-btn:disabled { opacity:.5; cursor:not-allowed; }
+.history-panel { background:var(--bg-base); border:1px solid var(--bg-border); border-radius:8px; margin-bottom:12px; overflow:hidden; }
+.history-item { display:flex; align-items:center; justify-content:space-between; padding:9px 14px; border-bottom:1px solid var(--bg-border); }
+.history-item:last-child { border-bottom:none; }
+.history-info { flex:1; cursor:pointer; }
+.history-info:hover .history-title { color:var(--accent); }
+.history-title { font-size:12px; color:var(--text-main); display:block; }
+.history-meta { font-size:11px; color:var(--text-sec); }
+.del-btn { background:none; border:none; color:var(--text-sec); cursor:pointer; font-size:16px; padding:0 4px; line-height:1; }
+.del-btn:hover { color:var(--red); }
 .report-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
 .report-header-left { display:flex; align-items:center; gap:8px; }
 .report-controls { display:flex; align-items:center; gap:8px; }

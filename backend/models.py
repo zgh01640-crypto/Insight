@@ -87,7 +87,16 @@ class ImportBatch(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
-# ── TargetChangeLog ───────────────────────────────────
+# ── AIReport ─────────────────────────────────────────
+class AIReport(SQLModel, table=True):
+    __tablename__ = "ai_report"
+    id:         Optional[int] = Field(default=None, primary_key=True)
+    year:       int
+    title:      str = Field(max_length=100)
+    content:    str                          # Markdown 正文
+    model_id:   str = Field(max_length=30)  # deepseek/kimi/glm/claude
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
 class TargetChangeLog(SQLModel, table=True):
     __tablename__ = "target_change_log"
     id: Optional[int] = Field(default=None, primary_key=True)

@@ -44,6 +44,12 @@ export const importOpps       = (file) => _upload('/import/opportunities', file)
 export const getImportHistory = () => http.get('/import/history')
 export const getBatchFailures = (id) => http.get(`/import/history/${id}/failures`)
 
+// ── AI 分析报告 ───────────────────────────────────────
+export const getReports    = ()         => http.get('/reports/')
+export const saveReport    = (data)     => http.post('/reports/', data)
+export const getReport     = (id)       => http.get(`/reports/${id}`)
+export const deleteReport  = (id)       => http.delete(`/reports/${id}`)
+
 function _upload(url, file) {
   const fd = new FormData()
   fd.append('file', file)
