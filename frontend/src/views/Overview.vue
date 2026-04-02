@@ -194,17 +194,32 @@ async function generateReport() {
 // Markdown 渲染（同 AIChat.vue）
 function renderMd(text) {
   if (!text) return ''
-  return text
-    .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-    .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+  const codeBlocks = []
+  text = text.replace(/```([\s\S]*?)```/g, (_, c) => { codeBlocks.push(c); return `%%C${codeBlocks.length - 1}%%` })
+  text = text.replace(/((?:\|.+\n?)+)/g, block => {
+    const lines = block.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('|'))
+    if (lines.length < 2 || !/^\|[-| :]+\|$/.test(lines[1])) return block
+    let t = '<table class="md-table">'
+    lines.forEach((l, i) => {
+      if (i === 1) return
+      const cells = l.split('|').slice(1, -1).map(c => c.trim())
+      const tag = i === 0 ? 'th' : 'td'
+      t += '<tr>' + cells.map(c => `<${tag}>${c}</${tag}>`).join('') + '</tr>'
+    })
+    return t + '</table>\n'
+  })
+  text = text
     .replace(/^### (.+)$/gm, '<div class="md-h3">$1</div>')
-    .replace(/^## (.+)$/gm, '<div class="md-h2">$1</div>')
-    .replace(/^# (.+)$/gm, '<div class="md-h1">$1</div>')
+    .replace(/^## (.+)$/gm,  '<div class="md-h2">$1</div>')
+    .replace(/^# (.+)$/gm,   '<div class="md-h1">$1</div>')
+    .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
     .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
     .replace(/^[-•] (.+)$/gm, '<div class="md-li">$1</div>')
     .replace(/^\d+\. (.+)$/gm, '<div class="md-oli">$1</div>')
     .replace(/^---$/gm, '<hr class="md-hr">')
     .replace(/\n/g, '<br>')
+  text = text.replace(/%%C(\d+)%%/g, (_, i) => `<pre><code>${codeBlocks[+i]}</code></pre>`)
+  return text
 }
 </script>
 
@@ -396,6 +411,10 @@ function renderMd(text) {
 .report-content :deep(.md-oli) { padding-left:4px; margin:3px 0; }
 .report-content :deep(.inline-code) { background:rgba(255,255,255,.1); padding:1px 5px; border-radius:4px; font-family:monospace; font-size:12px; }
 .report-content :deep(.md-hr) { border:none; border-top:1px solid var(--bg-border); margin:10px 0; }
+.report-content :deep(.md-table) { border-collapse:collapse; width:100%; margin:10px 0; font-size:12px; }
+.report-content :deep(.md-table th) { background:var(--bg-border); color:var(--text-sec); padding:7px 12px; text-align:left; font-weight:600; }
+.report-content :deep(.md-table td) { padding:7px 12px; border-top:1px solid var(--bg-border); color:var(--text-main); font-family:var(--mono); }
+.report-content :deep(.md-table tr:hover td) { background:rgba(255,255,255,.03); }
 .dot-wave { display:inline-flex; gap:3px; align-items:center; }
 .dot-wave span { width:5px; height:5px; border-radius:50%; background:var(--accent); display:inline-block; animation:dotBounce 1.2s infinite ease-in-out; }
 .dot-wave span:nth-child(2) { animation-delay:.2s; }

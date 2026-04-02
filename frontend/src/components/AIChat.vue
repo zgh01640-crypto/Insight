@@ -106,30 +106,37 @@ function clearMessages() {
   messages.value = []
 }
 
-// Markdown 渲染：标题、粗体、斜体、代码块、行内代码、列表、换行
+// Markdown 渲染（含表格）
 function renderMd(text) {
   if (!text) return ''
-  return text
-    // 代码块
-    .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-    // 行内代码
-    .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
-    // 标题 ### ## #
+  const codeBlocks = []
+  text = text.replace(/```([\s\S]*?)```/g, (_, c) => { codeBlocks.push(c); return `%%C${codeBlocks.length - 1}%%` })
+  text = text.replace(/((?:\|.+\n?)+)/g, block => {
+    const lines = block.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('|'))
+    if (lines.length < 2 || !/^\|[-| :]+\|$/.test(lines[1])) return block
+    let t = '<table class="md-table">'
+    lines.forEach((l, i) => {
+      if (i === 1) return
+      const cells = l.split('|').slice(1, -1).map(c => c.trim())
+      const tag = i === 0 ? 'th' : 'td'
+      t += '<tr>' + cells.map(c => `<${tag}>${c}</${tag}>`).join('') + '</tr>'
+    })
+    return t + '</table>\n'
+  })
+  text = text
     .replace(/^### (.+)$/gm, '<div class="md-h3">$1</div>')
-    .replace(/^## (.+)$/gm, '<div class="md-h2">$1</div>')
-    .replace(/^# (.+)$/gm, '<div class="md-h1">$1</div>')
-    // 粗体 + 斜体
+    .replace(/^## (.+)$/gm,  '<div class="md-h2">$1</div>')
+    .replace(/^# (.+)$/gm,   '<div class="md-h1">$1</div>')
+    .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
     .replace(/\*\*\*(.+?)\*\*\*/g, '<b><em>$1</em></b>')
     .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    // 无序列表
     .replace(/^[-•] (.+)$/gm, '<div class="md-li">$1</div>')
-    // 有序列表
     .replace(/^\d+\. (.+)$/gm, '<div class="md-oli">$1</div>')
-    // 水平线
     .replace(/^---$/gm, '<hr class="md-hr">')
-    // 换行（非 pre 内）
     .replace(/\n/g, '<br>')
+  text = text.replace(/%%C(\d+)%%/g, (_, i) => `<pre><code>${codeBlocks[+i]}</code></pre>`)
+  return text
 }
 </script>
 
@@ -373,6 +380,10 @@ export default {
 }
 .bubble :deep(pre code) { font-size: 11px; font-family: monospace; }
 .bubble :deep(.md-hr) { border: none; border-top: 1px solid var(--bg-border, #1e2a38); margin: 8px 0; }
+.bubble :deep(.md-table) { border-collapse:collapse; width:100%; margin:8px 0; font-size:12px; }
+.bubble :deep(.md-table th) { background:rgba(255,255,255,.08); color:var(--text-sec, #9ab); padding:6px 10px; text-align:left; font-weight:600; }
+.bubble :deep(.md-table td) { padding:6px 10px; border-top:1px solid rgba(255,255,255,.06); font-family:monospace; }
+.bubble :deep(.md-table tr:hover td) { background:rgba(255,255,255,.04); }
 
 /* 打字动画 */
 .dot-wave { display: inline-flex; gap: 3px; align-items: center; }

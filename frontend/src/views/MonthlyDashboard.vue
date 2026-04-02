@@ -1,7 +1,8 @@
 <script setup>
 import { ref, onMounted, watch, computed } from 'vue'
 import { useAppStore } from '@/stores/app'
-import { getMonthly } from '@/api'
+import { getMonthly, getReports, saveReport, getReport, deleteReport } from '@/api'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { use } from 'echarts/core'
 import { BarChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
@@ -34,6 +35,139 @@ function fmt(n) {
   const v = Number(n)
   return isNaN(v) ? '—' : v.toLocaleString('zh-CN')
 }
+
+// ── AI 月度经营分析报告 ───────────────────────────────
+const report       = ref('')
+const generating   = ref(false)
+const reportModel  = ref('deepseek')
+const saving       = ref(false)
+const savedReports = ref([])
+const showHistory  = ref(false)
+
+const REPORT_MODELS = [
+  { id: 'deepseek', label: 'DeepSeek' },
+  { id: 'kimi',     label: 'Kimi' },
+  { id: 'glm',      label: 'GLM' },
+  { id: 'claude',   label: 'Claude Sonnet' },
+]
+const reportModelLabel = computed(() =>
+  REPORT_MODELS.find(m => m.id === reportModel.value)?.label || reportModel.value
+)
+
+const MONTH_NAMES = ['一','二','三','四','五','六','七','八','九','十','十一','十二']
+
+async function loadReports() {
+  const res = await getReports()
+  const all = res?.data || []
+  savedReports.value = all.filter(r => r.title.includes('月度') || r.title.includes('月经营'))
+}
+
+async function generateReport() {
+  report.value = ''
+  generating.value = true
+  const mName = MONTH_NAMES[(month.value - 1)] + '月'
+  const prompt = `请根据当前数据，生成${store.year}年${mName}产品中心经营分析报告。请严格按以下格式输出：
+
+## 总体情况
+产品中心本月合同/收入/回款的目标与完成情况，达成率评价。
+
+## 各事业部分析
+逐个分析4个事业部，每个事业部说明三项指标的月度完成情况，突出表现最好和最差的指标。
+
+## 主要风险
+列出本月达成率低于60%的事业部/指标。
+
+## 建议
+针对主要风险，给出具体可执行的行动建议。`
+
+  try {
+    const res = await fetch('/api/ai/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: prompt }],
+        year: store.year,
+        model_id: reportModel.value,
+      }),
+    })
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop()
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const payload = line.slice(6)
+        if (payload === '[DONE]') break
+        try { const chunk = JSON.parse(payload); if (chunk.text) report.value += chunk.text } catch {}
+      }
+    }
+  } catch {
+    report.value = '> 生成失败，请检查 API Key 配置或网络连接。'
+  } finally {
+    generating.value = false
+  }
+}
+
+async function onSaveReport() {
+  if (!report.value) return
+  saving.value = true
+  const mName = MONTH_NAMES[(month.value - 1)] + '月'
+  await saveReport({ year: store.year, title: `${store.year}年${mName}月度经营分析报告`, content: report.value, model_id: reportModel.value })
+  ElMessage.success('报告已保存')
+  saving.value = false
+  await loadReports()
+  showHistory.value = true
+}
+
+async function onDeleteReport(id) {
+  await ElMessageBox.confirm('确认删除此报告？', '提示', { type: 'warning' })
+  await deleteReport(id)
+  ElMessage.success('已删除')
+  await loadReports()
+}
+
+async function viewReport(item) {
+  const res = await getReport(item.id)
+  report.value = res?.data?.content || ''
+  showHistory.value = false
+}
+
+function renderMd(text) {
+  if (!text) return ''
+  const codeBlocks = []
+  text = text.replace(/```([\s\S]*?)```/g, (_, c) => { codeBlocks.push(c); return `%%C${codeBlocks.length - 1}%%` })
+  text = text.replace(/((?:\|.+\n?)+)/g, block => {
+    const lines = block.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('|'))
+    if (lines.length < 2 || !/^\|[-| :]+\|$/.test(lines[1])) return block
+    let t = '<table class="md-table">'
+    lines.forEach((l, i) => {
+      if (i === 1) return
+      const cells = l.split('|').slice(1, -1).map(c => c.trim())
+      const tag = i === 0 ? 'th' : 'td'
+      t += '<tr>' + cells.map(c => `<${tag}>${c}</${tag}>`).join('') + '</tr>'
+    })
+    return t + '</table>\n'
+  })
+  text = text
+    .replace(/^### (.+)$/gm, '<div class="md-h3">$1</div>')
+    .replace(/^## (.+)$/gm,  '<div class="md-h2">$1</div>')
+    .replace(/^# (.+)$/gm,   '<div class="md-h1">$1</div>')
+    .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .replace(/^[-•] (.+)$/gm, '<div class="md-li">$1</div>')
+    .replace(/^\d+\. (.+)$/gm, '<div class="md-oli">$1</div>')
+    .replace(/^---$/gm, '<hr class="md-hr">')
+    .replace(/\n/g, '<br>')
+  text = text.replace(/%%C(\d+)%%/g, (_, i) => `<pre><code>${codeBlocks[+i]}</code></pre>`)
+  return text
+}
+
+onMounted(loadReports)
 
 const centerMap = computed(() => {
   if (!data.value) return {}
@@ -160,6 +294,45 @@ function makeBarOption(metric) {
       </table>
     </div>
 
+    <!-- AI 月度经营分析报告 -->
+    <div class="ai-report-block" v-if="data">
+      <div class="report-header">
+        <div class="report-header-left">
+          <div class="section-label" style="margin-bottom:0">AI 月度经营分析报告</div>
+          <span v-if="savedReports.length" class="history-badge" @click="showHistory = !showHistory">
+            历史记录 {{ savedReports.length }}
+          </span>
+        </div>
+        <div class="report-controls">
+          <select v-model="reportModel" class="model-select" :disabled="generating">
+            <option v-for="m in REPORT_MODELS" :key="m.id" :value="m.id">{{ m.label }}</option>
+          </select>
+          <button class="gen-btn" @click="generateReport" :disabled="generating">
+            <span v-if="generating"><span class="dot-wave"><span/><span/><span/></span> 生成中</span>
+            <span v-else>生成报告</span>
+          </button>
+          <button v-if="report && !generating" class="save-btn" @click="onSaveReport" :disabled="saving">
+            {{ saving ? '保存中...' : '保存报告' }}
+          </button>
+          <button v-if="report" class="clear-btn" @click="report = ''">清空</button>
+        </div>
+      </div>
+      <div v-if="showHistory && savedReports.length" class="history-panel">
+        <div v-for="item in savedReports" :key="item.id" class="history-item">
+          <div class="history-info" @click="viewReport(item)">
+            <span class="history-title">{{ item.title }}</span>
+            <span class="history-meta">{{ item.model_id }} · {{ item.created_at }}</span>
+          </div>
+          <button class="del-btn" @click.stop="onDeleteReport(item.id)">×</button>
+        </div>
+      </div>
+      <div v-if="generating && !report" class="report-thinking">
+        <span class="dot-wave"><span/><span/><span/></span>
+        {{ reportModelLabel }} 正在分析数据，请稍候...
+      </div>
+      <div v-if="report" class="report-content" v-html="renderMd(report)" />
+    </div>
+
     <!-- 事业部完成率横向对比 -->
     <div class="section-label" v-if="data">各事业部指标完成率对比</div>
     <div class="three-col" v-if="data" style="margin-bottom:20px">
@@ -221,6 +394,49 @@ function makeBarOption(metric) {
 
 .section-label { font-size:11px; letter-spacing:1.5px; color:var(--text-sec); text-transform:uppercase; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
 .section-label::before { content:''; display:block; width:3px; height:12px; border-radius:2px; background:var(--accent); }
+
+/* AI 报告区块 */
+.ai-report-block { margin-bottom:16px; background:var(--bg-card); border:1px solid var(--bg-border); border-radius:10px; padding:16px 20px; }
+.report-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+.report-header-left { display:flex; align-items:center; gap:8px; }
+.report-controls { display:flex; align-items:center; gap:8px; }
+.history-badge { font-size:11px; padding:2px 8px; border-radius:10px; background:rgba(240,165,0,.15); color:var(--accent); cursor:pointer; border:1px solid rgba(240,165,0,.25); }
+.history-badge:hover { background:rgba(240,165,0,.25); }
+.model-select { font-size:11px; padding:3px 8px; border-radius:6px; background:rgba(240,165,0,.1); color:var(--accent); border:1px solid rgba(240,165,0,.25); outline:none; cursor:pointer; }
+.model-select:disabled { opacity:.5; }
+.model-select option { background:var(--bg-card); color:var(--text-main); }
+.gen-btn { font-size:12px; padding:5px 14px; border-radius:6px; border:none; cursor:pointer; background:var(--accent); color:#000; font-weight:600; display:flex; align-items:center; gap:6px; }
+.gen-btn:disabled { opacity:.5; cursor:not-allowed; }
+.gen-btn:not(:disabled):hover { opacity:.85; }
+.save-btn { font-size:12px; padding:5px 12px; border-radius:6px; border:1px solid var(--accent); background:transparent; color:var(--accent); cursor:pointer; }
+.save-btn:not(:disabled):hover { background:rgba(240,165,0,.1); }
+.save-btn:disabled { opacity:.5; cursor:not-allowed; }
+.clear-btn { font-size:11px; padding:5px 10px; border-radius:6px; border:1px solid var(--bg-border); background:transparent; color:var(--text-sec); cursor:pointer; }
+.clear-btn:hover { color:var(--red); border-color:var(--red); }
+.history-panel { background:var(--bg-base); border:1px solid var(--bg-border); border-radius:8px; margin-bottom:12px; overflow:hidden; }
+.history-item { display:flex; align-items:center; justify-content:space-between; padding:9px 14px; border-bottom:1px solid var(--bg-border); }
+.history-item:last-child { border-bottom:none; }
+.history-info { flex:1; cursor:pointer; }
+.history-info:hover .history-title { color:var(--accent); }
+.history-title { font-size:12px; color:var(--text-main); display:block; }
+.history-meta { font-size:11px; color:var(--text-sec); }
+.del-btn { background:none; border:none; color:var(--text-sec); cursor:pointer; font-size:16px; padding:0 4px; }
+.del-btn:hover { color:var(--red); }
+.report-thinking { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--accent); padding:12px 0; }
+.report-content { font-size:13px; line-height:1.8; color:var(--text-main); padding-top:4px; }
+.report-content :deep(.md-h2) { font-size:14px; font-weight:700; margin:14px 0 6px; color:var(--accent); padding-bottom:4px; border-bottom:1px solid var(--bg-border); }
+.report-content :deep(.md-h3) { font-size:13px; font-weight:600; margin:8px 0 4px; color:var(--text-sec); }
+.report-content :deep(.md-li) { padding-left:14px; position:relative; margin:3px 0; }
+.report-content :deep(.md-li)::before { content:'•'; position:absolute; left:2px; color:var(--accent); }
+.report-content :deep(.md-hr) { border:none; border-top:1px solid var(--bg-border); margin:10px 0; }
+.report-content :deep(.md-table) { border-collapse:collapse; width:100%; margin:10px 0; font-size:12px; }
+.report-content :deep(.md-table th) { background:var(--bg-border); color:var(--text-sec); padding:7px 12px; text-align:left; font-weight:600; }
+.report-content :deep(.md-table td) { padding:7px 12px; border-top:1px solid var(--bg-border); color:var(--text-main); font-family:var(--mono); }
+.report-content :deep(.md-table tr:hover td) { background:rgba(255,255,255,.03); }
+.dot-wave { display:inline-flex; gap:3px; align-items:center; }
+.dot-wave span { width:5px; height:5px; border-radius:50%; background:var(--accent); display:inline-block; animation:dotBounce 1.2s infinite ease-in-out; }
+.dot-wave span:nth-child(2) { animation-delay:.2s; } .dot-wave span:nth-child(3) { animation-delay:.4s; }
+@keyframes dotBounce { 0%,80%,100%{transform:translateY(0);opacity:.4;} 40%{transform:translateY(-5px);opacity:1;} }
 .card { background:var(--bg-card); border:1px solid var(--bg-border); border-radius:10px; padding:18px 20px; }
 
 .kpi-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
