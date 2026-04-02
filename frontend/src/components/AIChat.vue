@@ -110,9 +110,14 @@ function clearMessages() {
 }
 
 async function handleFileSelect(e) {
+  alert('✓ 文件选择事件被触发')
   const file = e.target.files?.[0]
   console.log('handleFileSelect triggered, file:', file)
-  if (!file) return
+  if (!file) {
+    alert('❌ 没有选中文件')
+    return
+  }
+  alert(`✓ 文件已选择: ${file.name}`)
   await handleFile(file)
 }
 
