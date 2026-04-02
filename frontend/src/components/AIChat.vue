@@ -111,6 +111,7 @@ function clearMessages() {
 
 async function handleFileSelect(e) {
   const file = e.target.files?.[0]
+  console.log('handleFileSelect triggered, file:', file)
   if (!file) return
   await handleFile(file)
 }
@@ -123,14 +124,29 @@ function onFileDrop(e) {
 }
 
 async function handleFile(file) {
+  console.log('handleFile called with:', file.name)
   fileUploading.value = true
   try {
+    console.log('Calling aiParseFile...')
     const res = await aiParseFile(file)
-    if (!res.success) {
-      alert('文件解析失败：' + (res.message || '未知错误'))
+    console.log('aiParseFile response:', res)
+
+    if (!res || !res.success) {
+      alert('文件解析失败：' + (res?.message || '未知错误'))
       return
     }
+
+    if (!res.data) {
+      alert('服务器返回数据无效')
+      return
+    }
+
     const data = res.data
+    if (!data.sample_rows || !Array.isArray(data.sample_rows)) {
+      alert('样本数据格式错误')
+      return
+    }
+
     const sample = data.sample_rows.map(r => JSON.stringify(r)).join('\n')
     input.value =
       `我上传了文件「${data.filename}」，类型：${data.import_type}，共 ${data.row_count} 行。\n` +
@@ -138,9 +154,11 @@ async function handleFile(file) {
       `前3行样本：\n${sample}\n\n` +
       `pending_id=${data.pending_id}\n\n` +
       `请确认数据无误后帮我导入数据库。`
+    console.log('About to send message...')
     await send()
   } catch(err) {
-    alert('上传文件出错：' + (err?.message || '网络错误'))
+    console.error('Error in handleFile:', err)
+    alert('上传文件出错：' + (err?.message || '网络错误，请检查浏览器控制台'))
   } finally {
     fileUploading.value = false
     if (fileInputRef.value) fileInputRef.value.value = ''
@@ -248,7 +266,7 @@ function renderMd(text) {
 
       <!-- 输入区 -->
       <div class="chat-input">
-        <input type="file" ref="fileInputRef" accept=".xlsx,.xls,.csv"
+        <input type="file" ref="fileInputRef" name="file" id="fileInput" accept=".xlsx,.xls,.csv"
                style="display:none" @change="handleFileSelect" />
         <textarea
           v-model="input"

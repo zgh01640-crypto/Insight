@@ -420,7 +420,12 @@ async def ai_parse_file(file: UploadFile = File(...)):
     pending_id = str(uuid.uuid4())[:8]
     _pending_imports[pending_id] = {"type": import_type, "df": df, "filename": file.filename}
 
-    sample = df.head(3).to_dict(orient="records")
+    # 转换示例行，确保所有值都是 JSON 可序列化的
+    sample_df = df.head(3)
+    sample = []
+    for _, row in sample_df.iterrows():
+        sample.append({k: (v if pd.notna(v) else None) for k, v in row.items()})
+
     return {
         "success": True,
         "message": "",

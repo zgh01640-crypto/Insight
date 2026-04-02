@@ -56,5 +56,6 @@ export const aiParseFile   = (file)     => _upload('/ai/parse-file', file)
 function _upload(url, file) {
   const fd = new FormData()
   fd.append('file', file)
-  return http.post(url, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+  // 不要手动设置 Content-Type，让浏览器自动设置（包括 boundary）
+  return http.post(url, fd)
 }
