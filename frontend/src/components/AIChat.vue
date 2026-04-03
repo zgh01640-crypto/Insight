@@ -132,13 +132,6 @@ async function handleAttachClick() {
   }
 }
 
-async function handleFileSelect(e) {
-  console.log('handleFileSelect triggered, file:', e.target.files?.[0])
-  const file = e.target.files?.[0]
-  if (!file) return
-  await handleFile(file)
-}
-
 function onFileDrop(e) {
   e.preventDefault()
   const file = e.dataTransfer.files?.[0]
@@ -445,25 +438,25 @@ export default {
 .bubble.typing { padding: 12px 16px; }
 
 /* Markdown 样式 */
-.bubble :deep(.md-h1) { font-size: 15px; font-weight: 700; margin: 8px 0 4px; }
-.bubble :deep(.md-h2) { font-size: 14px; font-weight: 700; margin: 6px 0 3px; color: var(--accent, #f0a500); }
-.bubble :deep(.md-h3) { font-size: 13px; font-weight: 600; margin: 4px 0 2px; color: var(--text-sec, #9ab); }
+.bubble :deep(.md-h1) { font-size: 15px; font-weight: 700; margin: 4px 0 2px; }
+.bubble :deep(.md-h2) { font-size: 14px; font-weight: 700; margin: 3px 0 1px; color: var(--accent, #f0a500); }
+.bubble :deep(.md-h3) { font-size: 13px; font-weight: 600; margin: 2px 0 1px; color: var(--text-sec, #9ab); }
 .bubble :deep(.md-li) {
-  padding-left: 14px; position: relative; margin: 2px 0;
+  padding-left: 14px; position: relative; margin: 1px 0;
 }
 .bubble :deep(.md-li)::before { content: '•'; position: absolute; left: 2px; color: var(--accent, #f0a500); }
-.bubble :deep(.md-oli) { padding-left: 4px; margin: 2px 0; }
+.bubble :deep(.md-oli) { padding-left: 4px; margin: 1px 0; }
 .bubble :deep(.inline-code) {
   background: rgba(255,255,255,.1); padding: 1px 5px;
   border-radius: 4px; font-family: monospace; font-size: 12px;
 }
 .bubble :deep(pre) {
   background: rgba(0,0,0,.3); border-radius: 6px; padding: 10px 12px;
-  margin: 6px 0; overflow-x: auto;
+  margin: 3px 0; overflow-x: auto;
 }
 .bubble :deep(pre code) { font-size: 11px; font-family: monospace; }
-.bubble :deep(.md-hr) { border: none; border-top: 1px solid var(--bg-border, #1e2a38); margin: 8px 0; }
-.bubble :deep(.md-table) { border-collapse:collapse; width:100%; margin:8px 0; font-size:12px; }
+.bubble :deep(.md-hr) { border: none; border-top: 1px solid var(--bg-border, #1e2a38); margin: 4px 0; }
+.bubble :deep(.md-table) { border-collapse:collapse; width:100%; margin:4px 0; font-size:12px; }
 .bubble :deep(.md-table th) { background:rgba(255,255,255,.08); color:var(--text-sec, #9ab); padding:6px 10px; text-align:left; font-weight:600; }
 .bubble :deep(.md-table td) { padding:6px 10px; border-top:1px solid rgba(255,255,255,.06); font-family:monospace; }
 .bubble :deep(.md-table tr:hover td) { background:rgba(255,255,255,.04); }
