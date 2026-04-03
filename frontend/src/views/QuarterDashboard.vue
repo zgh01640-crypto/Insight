@@ -161,11 +161,15 @@ function renderMd(text) {
     .replace(/^## (.+)$/gm,  '<div class="md-h2">$1</div>')
     .replace(/^# (.+)$/gm,   '<div class="md-h1">$1</div>')
     .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+    .replace(/\*\*\*(.+?)\*\*\*/g, '<b><em>$1</em></b>')
     .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/^[-•] (.+)$/gm, '<div class="md-li">$1</div>')
     .replace(/^\d+\. (.+)$/gm, '<div class="md-oli">$1</div>')
     .replace(/^---$/gm, '<hr class="md-hr">')
+    .replace(/\n\n+/g, '</p><p>')
     .replace(/\n/g, '<br>')
+  text = '<p>' + text + '</p>'
   text = text.replace(/%%C(\d+)%%/g, (_, i) => `<pre><code>${codeBlocks[+i]}</code></pre>`)
   return text
 }
@@ -449,16 +453,22 @@ function makeBarOption(metric) {
 .del-btn { background:none; border:none; color:var(--text-sec); cursor:pointer; font-size:16px; padding:0 4px; }
 .del-btn:hover { color:var(--red); }
 .report-thinking { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--accent); padding:12px 0; }
-.report-content { font-size:13px; line-height:1.8; color:var(--text-main); padding-top:4px; }
-.report-content :deep(.md-h2) { font-size:14px; font-weight:700; margin:14px 0 6px; color:var(--accent); padding-bottom:4px; border-bottom:1px solid var(--bg-border); }
-.report-content :deep(.md-h3) { font-size:13px; font-weight:600; margin:8px 0 4px; color:var(--text-sec); }
-.report-content :deep(.md-li) { padding-left:14px; position:relative; margin:3px 0; }
+.report-content { font-size:13px; line-height:1.3; color:var(--text-main); padding-top:4px; }
+.report-content :deep(p) { margin: 0; }
+.report-content :deep(p + p) { margin-top: 2px; }
+.report-content :deep(.md-h2) { font-size:14px; font-weight:700; margin:2px 0 0px; color:var(--accent); }
+.report-content :deep(.md-h3) { font-size:13px; font-weight:600; margin:2px 0 0px; color:var(--text-sec); }
+.report-content :deep(.md-li) { padding-left:14px; position:relative; margin:0px 0; }
 .report-content :deep(.md-li)::before { content:'•'; position:absolute; left:2px; color:var(--accent); }
-.report-content :deep(.md-hr) { border:none; border-top:1px solid var(--bg-border); margin:10px 0; }
-.report-content :deep(.md-table) { border-collapse:collapse; width:100%; margin:10px 0; font-size:12px; }
-.report-content :deep(.md-table th) { background:var(--bg-border); color:var(--text-sec); padding:7px 12px; text-align:left; font-weight:600; }
-.report-content :deep(.md-table td) { padding:7px 12px; border-top:1px solid var(--bg-border); color:var(--text-main); font-family:var(--mono); }
+.report-content :deep(.md-hr) { border:none; border-top:1px solid var(--bg-border); margin:2px 0; }
+.report-content :deep(.md-table) { border-collapse:collapse; width:100%; margin:2px 0; font-size:12px; }
+.report-content :deep(.md-table th) { background:var(--bg-border); color:var(--text-sec); padding:4px 8px; text-align:left; font-weight:600; }
+.report-content :deep(.md-table td) { padding:4px 8px; border-top:1px solid var(--bg-border); color:var(--text-main); font-family:var(--mono); }
 .report-content :deep(.md-table tr:hover td) { background:rgba(255,255,255,.03); }
+.report-content :deep(pre) { background: rgba(0,0,0,.3); border-radius: 6px; padding: 8px 10px; margin: 2px 0; overflow-x: auto; }
+.report-content :deep(pre code) { font-size: 11px; font-family: monospace; }
+.report-content :deep(.inline-code) { background:rgba(255,255,255,.1); padding:1px 5px; border-radius:4px; font-family:monospace; font-size:12px; }
+.report-content :deep(br) { display: none; }
 .dot-wave { display:inline-flex; gap:3px; align-items:center; }
 .dot-wave span { width:5px; height:5px; border-radius:50%; background:var(--accent); display:inline-block; animation:dotBounce 1.2s infinite ease-in-out; }
 .dot-wave span:nth-child(2) { animation-delay:.2s; } .dot-wave span:nth-child(3) { animation-delay:.4s; }
