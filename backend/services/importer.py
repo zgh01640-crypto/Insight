@@ -1,6 +1,6 @@
 """
 Import service: validates and writes Excel/CSV data.
-Supports three import types: annual_target, monthly_actual, opportunity.
+Supports four import types: annual_target, monthly_actual, opportunity, collection.
 """
 import json
 from datetime import datetime
@@ -9,7 +9,7 @@ import pandas as pd
 from sqlmodel import Session, select
 from models import (
     AnnualTarget, MonthlyTarget, MonthlyActual,
-    Opportunity, ImportBatch, BusinessUnit, TargetChangeLog,
+    Opportunity, ImportBatch, BusinessUnit, TargetChangeLog, CollectionItem,
 )
 
 METRIC_MAP = {"合同": "contract", "收入": "revenue", "回款": "payment"}
@@ -377,6 +377,103 @@ def import_opportunities(filepath: str, filename: str, session: Session) -> Impo
     # 给所有创建的 Opportunity 记录赋值 import_batch_id
     for opp in opps_list:
         opp.import_batch_id = batch.id
+
+    session.commit()
+    session.refresh(batch)
+    return batch
+
+
+# ── Collection Item Import ────────────────────────────
+COLLECTION_STATUS_VALUES = {"催收中", "已回款", "已核销"}
+
+# 兼容原始 Excel 的状态值映射
+_COLLECTION_STATUS_ALIAS = {
+    "已到期":    "催收中",
+    "未到期":    "催收中",
+    "未开票收入": "催收中",
+    "已回款":    "已回款",
+    "已核销":    "已核销",
+    "催收中":    "催收中",
+}
+
+def import_collection_items(filepath: str, filename: str, session: Session, default_year: int = None) -> ImportBatch:
+    df = _read_file(filepath, filename)
+    unit_map = _get_unit_map(session)
+
+    # 兼容列名：支持 "事业部" 或 "所属事业部"
+    if "事业部" in df.columns and "所属事业部" not in df.columns:
+        df = df.rename(columns={"事业部": "所属事业部"})
+    # 忽略序号列
+    required_check = ["所属事业部", "项目名称", "单位名称", "欠款金额（万元）"]
+
+    errors = []
+    success = 0
+    collection_list = []
+
+    for idx, row in df.iterrows():
+        lineno = idx + 2
+        row = row.fillna("")
+        missing = [c for c in required_check if not str(row.get(c, "")).strip()]
+        if missing:
+            errors.append({"row": lineno, "reason": f"缺少必填字段: {', '.join(missing)}"})
+            continue
+
+        # 年份：优先读列，否则用 default_year，否则当前年
+        year_val = str(row.get("年份", "")).strip()
+        if year_val:
+            try:
+                year = int(float(year_val))
+                assert 2020 <= year <= 2040
+            except Exception:
+                errors.append({"row": lineno, "reason": "年份格式错误（需2020-2040整数）"})
+                continue
+        else:
+            import datetime
+            year = default_year or datetime.datetime.utcnow().year
+
+        unit_name = str(row["所属事业部"]).strip()
+        # 事业部名称直接匹配数据库
+        if unit_name not in unit_map:
+            errors.append({"row": lineno, "reason": f"事业部不存在: {unit_name}"})
+            continue
+
+        try:
+            amount = float(row["欠款金额（万元）"])
+            assert amount >= 0
+        except Exception:
+            errors.append({"row": lineno, "reason": "欠款金额必须为非负数"})
+            continue
+
+        raw_status = str(row.get("状态", "")).strip()
+        status = _COLLECTION_STATUS_ALIAS.get(raw_status, "催收中")
+
+        item = CollectionItem(
+            year=year,
+            business_unit_id=unit_map[unit_name],
+            project_name=str(row["项目名称"]).strip(),
+            client_name=str(row["单位名称"]).strip(),
+            amount=amount,
+            status=status,
+            notes=str(row.get("备注", "")).strip() or None,
+        )
+        session.add(item)
+        collection_list.append(item)
+        success += 1
+
+    # 先创建 ImportBatch 并 flush 得到 ID
+    batch = ImportBatch(
+        import_type="collection",
+        filename=filename,
+        total_rows=len(df),
+        success_rows=success,
+        fail_rows=len(errors),
+        fail_detail=json.dumps(errors, ensure_ascii=False),
+    )
+    session.add(batch)
+    session.flush()
+
+    for item in collection_list:
+        item.import_batch_id = batch.id
 
     session.commit()
     session.refresh(batch)

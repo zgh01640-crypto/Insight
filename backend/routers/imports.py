@@ -5,7 +5,7 @@ from sqlmodel import Session, select
 from database import get_session
 from models import ImportBatch
 from schemas import ApiResponse
-from services.importer import import_annual_targets, import_monthly_actuals, import_opportunities
+from services.importer import import_annual_targets, import_monthly_actuals, import_opportunities, import_collection_items
 
 router = APIRouter()
 
@@ -49,6 +49,19 @@ async def import_opportunities_file(file: UploadFile = File(...), session: Sessi
     path = await _save_temp(file)
     try:
         batch = import_opportunities(path, file.filename, session)
+    finally:
+        os.unlink(path)
+    return ApiResponse(
+        data={"batch_id": batch.id, "success": batch.success_rows, "fail": batch.fail_rows},
+        message=f"导入完成：{batch.success_rows}条成功，{batch.fail_rows}条失败",
+    )
+
+
+@router.post("/collections", response_model=ApiResponse)
+async def import_collections_file(file: UploadFile = File(...), session: Session = Depends(get_session)):
+    path = await _save_temp(file)
+    try:
+        batch = import_collection_items(path, file.filename, session)
     finally:
         os.unlink(path)
     return ApiResponse(

@@ -11,14 +11,15 @@ from typing import List
 from openai import OpenAI
 from sqlmodel import Session, select
 from database import get_session
-from models import ImportBatch, MonthlyActual, Opportunity
+from models import ImportBatch, MonthlyActual, Opportunity, CollectionItem
 from schemas import ApiResponse
 from routers.dashboard import (
     overview, division_detail, quarterly_dashboard,
     monthly_dashboard, opportunity_support,
 )
 from routers.opportunities import list_opportunities
-from services.importer import import_monthly_actuals, import_opportunities
+from routers.collections import list_collections, collection_dashboard
+from services.importer import import_monthly_actuals, import_opportunities, import_collection_items
 
 router = APIRouter()
 
@@ -212,6 +213,53 @@ TOOLS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_collections",
+            "description": "查询年度重点催收项目明细列表，包含各事业部的欠款项目、金额、状态。当用户询问某个具体事业部的催收项目、特定状态的催收项目、催收明细时使用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "year":             {"type": "integer", "description": "年份"},
+                    "business_unit_id": {"type": "integer", "description": "事业部ID：1=智能建造, 2=大数据, 3=数字交易, 4=智慧政务"},
+                    "status":           {"type": "string", "enum": ["催收中", "已回款", "已核销"], "description": "状态筛选"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_collection_dashboard",
+            "description": "获取催收项目仪表盘数据，包含：全局汇总（总欠款、催收中、已回款、回款率）、各事业部聚合（金额/数量/回款率）、金额Top10重点项目、各事业部完整明细。当用户询问催收整体情况、回款率、各事业部催收汇总、催收分析时优先使用此工具。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "year": {"type": "integer", "description": "年份，默认当前年"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "import_collections",
+            "description": "将用户上传的催收项目数据文件写入数据库。只在用户确认后调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pending_id": {
+                        "type": "string",
+                        "description": "文件解析后返回的 pending_id"
+                    }
+                },
+                "required": ["pending_id"]
+            }
+        }
+    },
 ]
 
 # ── Tool 执行 ─────────────────────────────────────────
@@ -300,8 +348,48 @@ def _execute_tool(name: str, args: dict, session: Session) -> str:
                     session.delete(r)
                 session.commit()
                 return json.dumps({"deleted": deleted}, ensure_ascii=False)
+            elif batch.import_type == "collection":
+                rows = session.exec(
+                    select(CollectionItem).where(CollectionItem.import_batch_id == batch_id)
+                ).all()
+                deleted = len(rows)
+                for r in rows:
+                    session.delete(r)
+                session.commit()
+                return json.dumps({"deleted": deleted}, ensure_ascii=False)
             else:
                 return json.dumps({"error": f"不支持撤销此类型：{batch.import_type}"}, ensure_ascii=False)
+        elif name == "get_collections":
+            result = list_collections(
+                year=args.get("year"),
+                business_unit_id=args.get("business_unit_id"),
+                status=args.get("status"),
+                session=session,
+            )
+        elif name == "get_collection_dashboard":
+            result = collection_dashboard(
+                year=args.get("year"),
+                session=session,
+            )
+        elif name == "import_collections":
+            pending = _pending_imports.pop(args["pending_id"], None)
+            if not pending:
+                return json.dumps({"error": "找不到对应的待导入数据，可能已过期"}, ensure_ascii=False)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+                pending["df"].to_excel(tmp.name, index=False)
+                path = tmp.name
+            try:
+                batch = import_collection_items(path, pending["filename"], session)
+            finally:
+                os.unlink(path)
+            failures = json.loads(batch.fail_detail) if batch.fail_detail else []
+            return json.dumps({
+                "batch_id": batch.id,
+                "total": batch.total_rows,
+                "success": batch.success_rows,
+                "fail": batch.fail_rows,
+                "failures": failures[:10],
+            }, ensure_ascii=False)
         else:
             return json.dumps({"error": f"未知工具: {name}"}, ensure_ascii=False)
         return json.dumps(result.data, ensure_ascii=False, default=str)
@@ -334,6 +422,7 @@ def chat(req: ChatRequest, session: Session = Depends(get_session)):
 - 4: 智慧政务事业部
 
 核心指标：合同（contract）、收入（revenue）、回款（payment），金额单位均为万元。
+催收项目状态：催收中 / 已回款 / 已核销。
 
 行为准则：
 1. 只使用工具获取真实数据，不编造或估算任何数字
@@ -401,8 +490,9 @@ async def ai_parse_file(file: UploadFile = File(...)):
         os.unlink(path)
 
     cols = set(df.columns.tolist())
-    actuals_cols = {"年份", "月份", "事业部", "指标类型", "完成值"}
-    opp_cols     = {"商机名称", "所属事业部", "指标类型", "所属年度", "所属季度"}
+    actuals_cols     = {"年份", "月份", "事业部", "指标类型", "完成值"}
+    opp_cols         = {"商机名称", "所属事业部", "指标类型", "所属年度", "所属季度"}
+    collection_cols  = {"项目名称", "单位名称", "欠款金额（万元）"}
 
     if actuals_cols.issubset(cols):
         import_type = "monthly_actuals"
@@ -410,6 +500,9 @@ async def ai_parse_file(file: UploadFile = File(...)):
     elif opp_cols.issubset(cols):
         import_type = "opportunities"
         type_label  = "商机数据"
+    elif collection_cols.issubset(cols):
+        import_type = "collections"
+        type_label  = "催收项目数据"
     else:
         error_response = {
             "success": False,

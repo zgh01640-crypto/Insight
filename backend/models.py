@@ -105,3 +105,19 @@ class TargetChangeLog(SQLModel, table=True):
     old_amount: float
     new_amount: float
     changed_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ── CollectionItem ────────────────────────────────────
+class CollectionItem(SQLModel, table=True):
+    __tablename__ = "collection_item"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    year: int
+    business_unit_id: int = Field(foreign_key="business_unit.id")
+    project_name: str = Field(max_length=200)        # 项目名称
+    client_name: str = Field(max_length=200)         # 单位名称
+    amount: float = Field(default=0.0)               # 欠款金额（万元）
+    status: str = Field(default="催收中")             # 催收中 / 已回款 / 已核销
+    notes: Optional[str] = None
+    import_batch_id: Optional[int] = Field(default=None, foreign_key="import_batch.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

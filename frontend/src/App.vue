@@ -10,16 +10,18 @@ const store  = useAppStore()
 
 const navItems = [
   { group: '看板', items: [
-    { path: '/overview',    label: '年度仪表盘',    icon: 'DataAnalysis' },
-    { path: '/quarter',     label: '季度仪表盘',    icon: 'Calendar' },
-    { path: '/monthly',     label: '月度仪表盘',    icon: 'Histogram' },
-    { path: '/opportunity', label: '商机分析',  icon: 'TrendCharts' },
-    { path: '/trend',       label: '同比趋势分析',  icon: 'DataLine' },
+    { path: '/overview',             label: '年度仪表盘',    icon: 'DataAnalysis' },
+    { path: '/quarter',              label: '季度仪表盘',    icon: 'Calendar' },
+    { path: '/monthly',              label: '月度仪表盘',    icon: 'Histogram' },
+    { path: '/opportunity',          label: '商机分析',      icon: 'TrendCharts' },
+    { path: '/trend',                label: '同比趋势分析',  icon: 'DataLine' },
+    { path: '/collection-dashboard', label: '催收仪表盘',    icon: 'Money' },
   ]},
   { group: '数据管理', items: [
-    { path: '/targets',  label: '年度目标管理', icon: 'AimFilled' },
-    { path: '/actuals',  label: '月度数据导入', icon: 'Upload' },
-    { path: '/oppmgmt',  label: '商机管理',    icon: 'Opportunity' },
+    { path: '/targets',      label: '年度目标管理', icon: 'AimFilled' },
+    { path: '/actuals',      label: '月度数据导入', icon: 'Upload' },
+    { path: '/oppmgmt',      label: '商机管理',     icon: 'Opportunity' },
+    { path: '/collections',  label: '催收项目管理', icon: 'CreditCard' },
   ]},
   { group: '系统', items: [
     { path: '/settings', label: '设置 & 模板', icon: 'Setting' },

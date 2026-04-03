@@ -37,10 +37,18 @@ export const createOpportunity= (data) => http.post('/opportunities/', data)
 export const updateOpportunity= (id, data) => http.put(`/opportunities/${id}`, data)
 export const deleteOpportunity= (id) => http.delete(`/opportunities/${id}`)
 
+// ── Collections ──────────────────────────────────────
+export const getCollections         = (params) => http.get('/collections/', { params })
+export const getCollectionDashboard = (year)   => http.get('/collections/dashboard', { params: { year } })
+export const createCollection       = (data)   => http.post('/collections/', data)
+export const updateCollection       = (id, data) => http.put(`/collections/${id}`, data)
+export const deleteCollection       = (id)     => http.delete(`/collections/${id}`)
+
 // ── Import ───────────────────────────────────────────
 export const importTargets    = (file) => _upload('/import/targets', file)
 export const importActuals    = (file) => _upload('/import/actuals', file)
 export const importOpps       = (file) => _upload('/import/opportunities', file)
+export const importCollections= (file) => _upload('/import/collections', file)
 export const getImportHistory = () => http.get('/import/history')
 export const getBatchFailures = (id) => http.get(`/import/history/${id}/failures`)
 

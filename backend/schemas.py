@@ -125,3 +125,28 @@ class ImportHistoryItem(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ── Collection Item ──────────────────────────────────
+class CollectionCreate(BaseModel):
+    year: int
+    business_unit_id: int
+    project_name: str
+    client_name: str
+    amount: float
+    status: str = "催收中"
+    notes: Optional[str] = None
+
+
+class CollectionUpdate(CollectionCreate):
+    pass
+
+
+class CollectionRead(CollectionCreate):
+    id: int
+    business_unit_name: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
