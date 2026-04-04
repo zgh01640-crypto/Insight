@@ -15,6 +15,7 @@ services:
       - KIMI_API_KEY=${KIMI_API_KEY:-}
       - GLM_API_KEY=${GLM_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - SYSTEM_API_KEY=${SYSTEM_API_KEY:-}
     ports:
       - "8010:8000"
     restart: unless-stopped

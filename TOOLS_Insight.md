@@ -1,6 +1,6 @@
 # Insight 经营分析系统 — HTTP API 工具手册
 
-openclaw 可通过 `exec` 直接执行以下命令访问系统，无需认证。
+openclaw 可通过 `exec` 直接执行以下命令访问系统。
 
 ## 基础信息
 
@@ -10,6 +10,23 @@ openclaw 可通过 `exec` 直接执行以下命令访问系统，无需认证。
 | 响应格式 | `{"success": bool, "message": str, "data": any}` |
 | 交互式文档 | `http://localhost:8010/docs`（Swagger UI） |
 | 数量单位 | 万元 |
+
+## 认证
+
+系统支持可选的 API Key 认证（通过环境变量 `SYSTEM_API_KEY` 配置）。
+
+- **内部前端**（localhost:5173 浏览器访问）：**无需认证**，自动豁免
+- **外部调用**（curl / PowerShell / openclaw）：需在请求头加入 `X-API-Key`
+
+```bash
+# curl（需认证时）
+curl -H "X-API-Key: your_key_here" "http://localhost:8010/api/dashboard/overview?year=2026"
+
+# PowerShell（需认证时）
+Invoke-RestMethod -Headers @{"X-API-Key"="your_key_here"} -Uri "http://localhost:8010/api/dashboard/overview?year=2026"
+```
+
+> 若未配置 `SYSTEM_API_KEY`，所有请求均无需认证（默认开放）。
 
 **事业部 ID 映射：**
 - `1` = 智能建造事业部

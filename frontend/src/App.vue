@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { getUnits } from '@/api'
@@ -30,9 +30,23 @@ const navItems = [
 
 const years = [new Date().getFullYear(), new Date().getFullYear() - 1]
 
+// ── 服务在线状态 ──────────────────────────────────────
+const serviceOnline = ref(true)
+
+async function checkServiceStatus() {
+  try {
+    const res = await fetch('/api/status')
+    serviceOnline.value = res.ok
+  } catch {
+    serviceOnline.value = false
+  }
+}
+
 onMounted(async () => {
   const res = await getUnits()
   if (res?.data) store.setUnits(res.data)
+  checkServiceStatus()
+  setInterval(checkServiceStatus, 30000)
 })
 </script>
 
@@ -80,7 +94,11 @@ onMounted(async () => {
           >
             <el-option v-for="y in years" :key="y" :label="`${y}年`" :value="y" />
           </el-select>
-          <span class="status-dot" title="数据已更新" />
+          <span
+            class="status-dot"
+            :class="{ offline: !serviceOnline }"
+            :title="serviceOnline ? 'Insight 服务在线' : '服务离线'"
+          />
         </div>
       </header>
       <div class="content">
@@ -130,7 +148,8 @@ onMounted(async () => {
 .topbar-title { font-size: 15px; font-weight: 600; }
 .topbar-sub { font-size: 12px; color: var(--text-sec); }
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
-.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); display: inline-block; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); display: inline-block; transition: background .3s, box-shadow .3s; }
+.status-dot.offline { background: var(--text-dim, #4a5568); box-shadow: none; }
 
 .content { flex: 1; overflow-y: auto; padding: 20px 24px; }
 
