@@ -1,5 +1,5 @@
 <script setup>
-import { ref, nextTick, computed } from 'vue'
+import { ref, nextTick, computed, onMounted } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { aiParseFile } from '@/api'
 
@@ -19,6 +19,63 @@ const availableModels = ref([
   { id: 'claude',   label: 'Claude Sonnet', model: 'anthropic/claude-sonnet-4.6' },
 ])
 const currentModel = computed(() => availableModels.value.find(m => m.id === selectedModel.value))
+
+// ── 记忆系统：会话状态 ────────────────────────────────
+const sessionId    = ref(null)   // 当前会话 ID
+const sessions     = ref([])     // 历史会话列表
+const showHistory  = ref(false)  // 历史侧边栏开关
+
+async function loadSessions() {
+  try {
+    const res = await fetch('/api/conversations/')
+    const data = await res.json()
+    sessions.value = data.data || []
+  } catch {}
+}
+
+async function newSession() {
+  // 只清空当前对话，不预创建 session（发第一条消息时自动创建并设置标题）
+  sessionId.value = null
+  messages.value  = []
+}
+
+async function loadSession(sid) {
+  try {
+    const res = await fetch(`/api/conversations/${sid}/messages`)
+    const data = await res.json()
+    messages.value = (data.data || []).map(m => ({ role: m.role, content: m.content }))
+    sessionId.value = sid
+    showHistory.value = false
+    scrollBottom()
+  } catch {}
+}
+
+async function deleteSession(sid, e) {
+  e.stopPropagation()
+  await fetch(`/api/conversations/${sid}`, { method: 'DELETE' })
+  if (sessionId.value === sid) {
+    sessionId.value = null
+    messages.value  = []
+  }
+  await loadSessions()
+}
+
+function fmtTime(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const now = new Date()
+  const diffMs = now - d
+  const diffMins = Math.floor(diffMs / 60000)
+  if (diffMins < 1)   return '刚刚'
+  if (diffMins < 60)  return `${diffMins}分钟前`
+  const diffH = Math.floor(diffMins / 60)
+  if (diffH < 24)     return `${diffH}小时前`
+  const diffD = Math.floor(diffH / 24)
+  if (diffD < 7)      return `${diffD}天前`
+  return `${d.getMonth()+1}/${d.getDate()}`
+}
+
+onMounted(loadSessions)
 
 // 拖拽左侧边缘横向拉伸
 function startResize(e) {
@@ -51,6 +108,24 @@ async function send() {
   thinking.value = true
   scrollBottom()
 
+  // 首条消息时自动创建会话
+  if (!sessionId.value) {
+    try {
+      const res = await fetch('/api/conversations/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model_id: selectedModel.value,
+          year: store.year,
+          title: text.slice(0, 20),
+        }),
+      })
+      const data = await res.json()
+      sessionId.value = data.data?.id || null
+      loadSessions()
+    } catch {}
+  }
+
   const idx = messages.value.length
   messages.value.push({ role: 'assistant', content: '' })
   scrollBottom()
@@ -63,6 +138,7 @@ async function send() {
         messages: messages.value.slice(0, -1).map(m => ({ role: m.role, content: m.content })),
         year: store.year,
         model_id: selectedModel.value,
+        session_id: sessionId.value,
       }),
     })
 
@@ -106,6 +182,7 @@ function onKeydown(e) {
 
 function clearMessages() {
   messages.value = []
+  sessionId.value = null
 }
 
 async function selectFileDialog() {
@@ -244,13 +321,44 @@ function renderMd(text) {
         </div>
         <div class="chat-header-right">
           <span class="chat-year">{{ store.year }}年</span>
-          <button v-if="messages.length" class="clear-btn" @click="clearMessages" title="清空对话">
+          <!-- 历史记录按钮 -->
+          <button class="clear-btn" @click="showHistory = !showHistory" :title="showHistory ? '关闭历史' : '历史记录'" :style="{ color: showHistory ? 'var(--accent)' : '' }">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </button>
+          <button v-if="messages.length" class="clear-btn" @click="clearMessages" title="新建对话">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
             </svg>
           </button>
         </div>
       </div>
+
+      <!-- 历史会话侧边栏 -->
+      <transition name="history-slide">
+        <div v-if="showHistory" class="history-panel">
+          <div class="history-header">
+            <span>历史对话</span>
+            <button class="history-new-btn" @click="newSession">＋ 新建</button>
+          </div>
+          <div class="history-list">
+            <div v-if="!sessions.length" class="history-empty">暂无历史记录</div>
+            <div
+              v-for="s in sessions" :key="s.id"
+              class="history-item"
+              :class="{ active: s.id === sessionId }"
+              @click="loadSession(s.id)"
+            >
+              <div class="history-item-info">
+                <span class="history-title">{{ s.title }}</span>
+                <span class="history-time">{{ fmtTime(s.updated_at) }}</span>
+              </div>
+              <button class="history-del" @click="deleteSession(s.id, $event)" title="删除">×</button>
+            </div>
+          </div>
+        </div>
+      </transition>
 
       <!-- 消息区 -->
       <div class="chat-body" ref="bodyRef" @dragover.prevent @drop.prevent="onFileDrop">
@@ -511,4 +619,41 @@ export default {
 }
 .send-btn:disabled { opacity: .35; cursor: not-allowed; }
 .send-btn:not(:disabled):hover { opacity: .85; }
+
+/* 历史侧边栏 */
+.history-panel {
+  position: absolute; top: 48px; right: 0; width: 220px;
+  background: var(--bg-card, #0f1923); border-left: 1px solid var(--bg-border, #1e2a38);
+  border-bottom: 1px solid var(--bg-border, #1e2a38); border-radius: 0 0 0 8px;
+  z-index: 10; display: flex; flex-direction: column; max-height: 320px;
+}
+.history-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; border-bottom: 1px solid var(--bg-border, #1e2a38);
+  font-size: 11px; color: var(--text-sec, #7a8fa6); font-weight: 600; letter-spacing: 1px;
+}
+.history-new-btn {
+  font-size: 11px; color: var(--accent, #f0a500); background: none; border: none;
+  cursor: pointer; padding: 2px 4px; border-radius: 3px;
+}
+.history-new-btn:hover { background: rgba(240,165,0,.12); }
+.history-list { overflow-y: auto; flex: 1; }
+.history-empty { padding: 16px 12px; font-size: 11px; color: var(--text-dim, #4a5568); text-align: center; }
+.history-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; cursor: pointer; font-size: 12px; color: var(--text-main, #e2e8f0);
+  border-bottom: 1px solid rgba(255,255,255,.04); gap: 6px;
+}
+.history-item:hover { background: rgba(255,255,255,.04); }
+.history-item.active { background: rgba(240,165,0,.08); color: var(--accent, #f0a500); }
+.history-item-info { flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: 2px; }
+.history-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.history-time  { font-size: 10px; color: var(--text-dim, #4a5568); }
+.history-del {
+  flex-shrink: 0; background: none; border: none; color: var(--text-dim, #4a5568);
+  cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; border-radius: 2px;
+}
+.history-del:hover { color: var(--red, #ef4444); }
+.history-slide-enter-active, .history-slide-leave-active { transition: opacity .15s, transform .15s; }
+.history-slide-enter-from, .history-slide-leave-to { opacity: 0; transform: translateY(-8px); }
 </style>

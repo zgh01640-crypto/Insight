@@ -1,5 +1,5 @@
 from sqlmodel import Session, create_engine, select, SQLModel, delete
-from models import BusinessUnit, AnnualTarget, MonthlyTarget, MonthlyActual, Opportunity, ImportBatch, AIReport, TargetChangeLog
+from models import BusinessUnit, AnnualTarget, MonthlyTarget, MonthlyActual, Opportunity, ImportBatch, AIReport, TargetChangeLog, CollectionItem, ConversationSession, ConversationMessage
 
 import os
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./insight.db")

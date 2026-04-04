@@ -75,6 +75,27 @@ class Opportunity(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+# ── ConversationSession ───────────────────────────────
+class ConversationSession(SQLModel, table=True):
+    __tablename__ = "conversation_session"
+    id: str = Field(primary_key=True)            # uuid[:8]
+    title: str = Field(max_length=100)           # 取首条用户消息前20字
+    model_id: str = Field(max_length=30)
+    year: int
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ── ConversationMessage ───────────────────────────────
+class ConversationMessage(SQLModel, table=True):
+    __tablename__ = "conversation_message"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    session_id: str = Field(foreign_key="conversation_session.id")
+    role: str        # user / assistant
+    content: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 # ── ImportBatch ───────────────────────────────────────
 class ImportBatch(SQLModel, table=True):
     __tablename__ = "import_batch"

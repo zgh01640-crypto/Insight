@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "insight": {
+      "command": "python",
+      "args": ["D:/ClaudeCode/Insight/insight-mcp/server.py"],
+      "env": {
+        "INSIGHT_BASE_URL": "http://localhost:8010"
+      }
+    }
+  }
+}

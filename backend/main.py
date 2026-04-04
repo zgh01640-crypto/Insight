@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import init_db
-from routers import targets, actuals, opportunities, dashboard, imports, ai, reports, collections
+from routers import targets, actuals, opportunities, dashboard, imports, ai, reports, collections, conversations
 
 app = FastAPI(title="Insight 经营分析智能体", version="2.0.0")
 
@@ -19,6 +19,7 @@ app.include_router(opportunities.router, prefix="/api/opportunities", tags=["商
 app.include_router(dashboard.router,     prefix="/api/dashboard",    tags=["看板"])
 app.include_router(imports.router,       prefix="/api/import",       tags=["数据导入"])
 app.include_router(collections.router,   prefix="/api/collections",  tags=["催收项目"])
+app.include_router(conversations.router, prefix="/api/conversations", tags=["对话历史"])
 app.include_router(ai.router,            prefix="/api/ai",           tags=["AI助手"])
 app.include_router(reports.router,       prefix="/api/reports",      tags=["分析报告"])
 

@@ -3,19 +3,20 @@ import json
 import uuid
 import tempfile
 import pandas as pd
-from datetime import date
+from datetime import date, datetime
 from fastapi import APIRouter, Depends, UploadFile, File
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 from openai import OpenAI
 from sqlmodel import Session, select
 from database import get_session
-from models import ImportBatch, MonthlyActual, Opportunity, CollectionItem
+from models import ImportBatch, MonthlyActual, Opportunity, CollectionItem, ConversationSession, ConversationMessage
 from schemas import ApiResponse
 from routers.dashboard import (
     overview, division_detail, quarterly_dashboard,
     monthly_dashboard, opportunity_support,
+    detect_anomalies, analyze_root_cause,
 )
 from routers.opportunities import list_opportunities
 from routers.collections import list_collections, collection_dashboard
@@ -260,6 +261,38 @@ TOOLS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "detect_anomalies",
+            "description": "自动扫描所有事业部所有指标，检测达成率偏低、月度环比骤降、同比大幅下滑、年度节奏落后等异常，返回异常列表和严重程度。当用户询问'有没有异常'、'哪里有问题'、'帮我做个体检'时优先使用此工具。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "year":  {"type": "integer", "description": "检测年份，默认当前年"},
+                    "month": {"type": "integer", "description": "检测截止月份（1-12），默认当前月"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_root_cause",
+            "description": "针对某事业部某指标的异常，钻取根因数据：逐月完成情况、季度对比、与去年同期对比、商机管道覆盖率。通常在 detect_anomalies 发现异常后，用户要求深入分析时调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "business_unit_id": {"type": "integer", "description": "事业部ID：1=智能建造, 2=大数据, 3=数字交易, 4=智慧政务"},
+                    "metric_type":      {"type": "string", "enum": ["contract", "revenue", "payment"]},
+                    "year":             {"type": "integer", "description": "年份，默认当前年"},
+                    "month":            {"type": "integer", "description": "截止月份，默认当前月"},
+                },
+                "required": ["business_unit_id", "metric_type"],
+            },
+        },
+    },
 ]
 
 # ── Tool 执行 ─────────────────────────────────────────
@@ -371,6 +404,22 @@ def _execute_tool(name: str, args: dict, session: Session) -> str:
                 year=args.get("year"),
                 session=session,
             )
+        elif name == "detect_anomalies":
+            year  = args.get("year")  or date.today().year
+            month = args.get("month") or date.today().month
+            data  = detect_anomalies(session=session, year=year, month=month)
+            return json.dumps(data, ensure_ascii=False, default=str)
+        elif name == "analyze_root_cause":
+            year  = args.get("year")  or date.today().year
+            month = args.get("month") or date.today().month
+            data  = analyze_root_cause(
+                session=session,
+                business_unit_id=args["business_unit_id"],
+                metric_type=args["metric_type"],
+                year=year,
+                month=month,
+            )
+            return json.dumps(data, ensure_ascii=False, default=str)
         elif name == "import_collections":
             pending = _pending_imports.pop(args["pending_id"], None)
             if not pending:
@@ -405,6 +454,7 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     year: int = None
     model_id: str = DEFAULT_MODEL
+    session_id: Optional[str] = None  # 传入则追加到该会话，不传则不持久化
 
 # ── SSE 流式聊天端点 ───────────────────────────────────
 @router.post("/chat")
@@ -470,6 +520,31 @@ def chat(req: ChatRequest, session: Session = Depends(get_session)):
             for i in range(0, len(final_content), chunk_size):
                 chunk = final_content[i:i + chunk_size]
                 yield f"data: {json.dumps({'text': chunk}, ensure_ascii=False)}\n\n"
+
+            # 保存消息到会话（如果有 session_id）
+            if req.session_id:
+                try:
+                    conv = session.get(ConversationSession, req.session_id)
+                    if conv:
+                        # 保存最后一条用户消息（如果尚未保存）
+                        last_user = req.messages[-1] if req.messages else None
+                        if last_user and last_user.role == "user":
+                            session.add(ConversationMessage(
+                                session_id=req.session_id,
+                                role="user",
+                                content=last_user.content,
+                            ))
+                        # 保存 assistant 回复
+                        session.add(ConversationMessage(
+                            session_id=req.session_id,
+                            role="assistant",
+                            content=final_content,
+                        ))
+                        conv.updated_at = datetime.utcnow()
+                        session.commit()
+                except Exception:
+                    pass  # 保存失败不影响响应
+
             yield "data: [DONE]\n\n"
             break
 

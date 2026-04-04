@@ -648,3 +648,239 @@ def list_units(session: Session = Depends(get_session)):
         {"id": u.id, "name": u.name, "code": u.code, "sort_order": u.sort_order}
         for u in units
     ])
+
+
+# ── Anomaly Detection ─────────────────────────────────
+def detect_anomalies(session: Session, year: int, month: int) -> dict:
+    """扫描所有事业部所有指标，检测4类异常并按严重程度排序"""
+    units   = session.exec(select(BusinessUnit).order_by(BusinessUnit.sort_order)).all()
+    ytd_a   = _ytd_actual(session, year, month)
+    ytd_t   = _ytd_target(session, year, month)
+    ann_t   = _annual_targets(session, year)
+    prev_a  = _ytd_actual(session, year - 1, month)
+
+    # 批量拉取当月和上月单月实际（避免 N+1）
+    months_to_fetch = [month] + ([month - 1] if month >= 2 else [])
+    single_rows = session.exec(
+        select(MonthlyActual).where(
+            MonthlyActual.year == year,
+            MonthlyActual.month.in_(months_to_fetch),
+        )
+    ).all()
+    single_map = {
+        (r.business_unit_id, r.metric_type, r.month): r.actual_amount
+        for r in single_rows
+    }
+
+    anomalies = []
+
+    for unit in units:
+        for metric in METRICS:
+            actual   = ytd_a.get((unit.id, metric), 0.0)
+            target   = ytd_t.get((unit.id, metric), 0.0)
+            annual   = ann_t.get((unit.id, metric), 0.0)
+            prev_act = prev_a.get((unit.id, metric), 0.0)
+            curr_m   = single_map.get((unit.id, metric, month), 0.0)
+            prev_m   = single_map.get((unit.id, metric, month - 1), 0.0) if month >= 2 else None
+
+            base = {
+                "business_unit_id":   unit.id,
+                "business_unit_name": unit.name,
+                "metric_type":        metric,
+            }
+
+            # A: YTD 达成率 < 70%
+            if target > 0:
+                ytd_rate = actual / target * 100
+                if ytd_rate < 70:
+                    anomalies.append({**base,
+                        "anomaly_type": "target_miss",
+                        "severity":     "high" if ytd_rate < 50 else "medium",
+                        "value":        round(ytd_rate, 1),
+                        "threshold":    70.0,
+                        "description":  f"{unit.name} {metric} YTD达成率 {ytd_rate:.1f}%，低于阈值 70%",
+                    })
+
+            # B: 月度环比骤降 > 40%
+            if prev_m is not None and prev_m > 0:
+                drop = (prev_m - curr_m) / prev_m * 100
+                if drop > 40:
+                    anomalies.append({**base,
+                        "anomaly_type": "mom_drop",
+                        "severity":     "high" if drop > 60 else "medium",
+                        "value":        round(drop, 1),
+                        "threshold":    40.0,
+                        "description":  f"{unit.name} {metric} {month}月单月 {curr_m:.1f}万，环比下降 {drop:.1f}%",
+                    })
+
+            # C: YTD 同比下滑 > 20%
+            if prev_act > 0:
+                yoy = (actual - prev_act) / prev_act * 100
+                if yoy < -20:
+                    anomalies.append({**base,
+                        "anomaly_type": "yoy_decline",
+                        "severity":     "high" if yoy < -40 else "medium",
+                        "value":        round(yoy, 1),
+                        "threshold":    -20.0,
+                        "description":  f"{unit.name} {metric} YTD同比下滑 {abs(yoy):.1f}%（去年 {prev_act:.1f}万，今年 {actual:.1f}万）",
+                    })
+
+            # D: 年度节奏落后 > 15pp
+            if annual > 0:
+                actual_annual_rate = actual / annual * 100
+                expected_pace      = _ytd_weight(month) * 100
+                pace_gap = expected_pace - actual_annual_rate
+                if pace_gap > 15:
+                    anomalies.append({**base,
+                        "anomaly_type": "annual_pace",
+                        "severity":     "high" if pace_gap > 30 else "medium",
+                        "value":        round(pace_gap, 1),
+                        "threshold":    15.0,
+                        "description":  f"{unit.name} {metric} 年度完成率 {actual_annual_rate:.1f}%，按节奏应完成 {expected_pace:.1f}%，落后 {pace_gap:.1f}pp",
+                    })
+
+    anomalies.sort(key=lambda x: 0 if x["severity"] == "high" else 1)
+
+    return {
+        "year":         year,
+        "month":        month,
+        "total_count":  len(anomalies),
+        "high_count":   sum(1 for a in anomalies if a["severity"] == "high"),
+        "medium_count": sum(1 for a in anomalies if a["severity"] == "medium"),
+        "anomalies":    anomalies,
+    }
+
+
+def analyze_root_cause(
+    session: Session,
+    business_unit_id: int,
+    metric_type: str,
+    year: int,
+    month: int,
+) -> dict:
+    """针对某事业部某指标钻取根因：逐月明细、季度汇总、同比基准、商机管道"""
+    unit = session.get(BusinessUnit, business_unit_id)
+    if not unit:
+        return {"error": f"事业部 {business_unit_id} 不存在"}
+
+    # 本年逐月实际
+    rows = session.exec(
+        select(MonthlyActual).where(
+            MonthlyActual.year == year,
+            MonthlyActual.business_unit_id == business_unit_id,
+            MonthlyActual.metric_type == metric_type,
+        ).order_by(MonthlyActual.month)
+    ).all()
+    monthly_actual = [0.0] * 12
+    for r in rows:
+        monthly_actual[r.month - 1] = r.actual_amount
+
+    # 去年逐月实际
+    prev_rows = session.exec(
+        select(MonthlyActual).where(
+            MonthlyActual.year == year - 1,
+            MonthlyActual.business_unit_id == business_unit_id,
+            MonthlyActual.metric_type == metric_type,
+        ).order_by(MonthlyActual.month)
+    ).all()
+    prev_monthly = [0.0] * 12
+    for r in prev_rows:
+        prev_monthly[r.month - 1] = r.actual_amount
+
+    # 月度目标（含 fallback 均摊）
+    at = session.exec(
+        select(AnnualTarget).where(
+            AnnualTarget.year == year,
+            AnnualTarget.business_unit_id == business_unit_id,
+            AnnualTarget.metric_type == metric_type,
+        )
+    ).first()
+    annual_target = at.target_amount if at else 0.0
+    monthly_target = [0.0] * 12
+    if at:
+        mt_rows = session.exec(
+            select(MonthlyTarget)
+            .where(MonthlyTarget.annual_target_id == at.id)
+            .order_by(MonthlyTarget.month)
+        ).all()
+        if mt_rows and any(mt.target_amount > 0 for mt in mt_rows):
+            for mt in mt_rows:
+                monthly_target[mt.month - 1] = mt.target_amount
+        else:
+            monthly_target = _monthly_targets(annual_target)
+
+    # 逐月分析（只分析到 month）
+    monthly_analysis = []
+    for i in range(month):
+        act  = monthly_actual[i]
+        tgt  = monthly_target[i]
+        prev = prev_monthly[i]
+        monthly_analysis.append({
+            "month":            i + 1,
+            "actual":           round(act, 2),
+            "target":           round(tgt, 2),
+            "gap":              round(tgt - act, 2),
+            "rate":             round(act / tgt * 100, 1) if tgt else None,
+            "prev_year_actual": round(prev, 2),
+            "yoy_rate":         round((act - prev) / prev * 100, 1) if prev else None,
+        })
+
+    # YTD 汇总
+    ytd_actual = sum(monthly_actual[:month])
+    ytd_target = sum(monthly_target[:month])
+    prev_ytd   = sum(prev_monthly[:month])
+
+    # 季度维度
+    Q_MONTHS = {"Q1": [1,2,3], "Q2": [4,5,6], "Q3": [7,8,9], "Q4": [10,11,12]}
+    quarterly = []
+    for q_name, q_ms in Q_MONTHS.items():
+        q_act = sum(monthly_actual[m-1] for m in q_ms if m <= month)
+        q_tgt = sum(monthly_target[m-1] for m in q_ms if m <= month)
+        quarterly.append({
+            "quarter": q_name,
+            "actual":  round(q_act, 2),
+            "target":  round(q_tgt, 2),
+            "gap":     round(q_tgt - q_act, 2),
+            "rate":    round(q_act / q_tgt * 100, 1) if q_tgt else None,
+        })
+
+    # 商机管道
+    opp_rows = session.exec(
+        select(Opportunity).where(
+            Opportunity.year == year,
+            Opportunity.business_unit_id == business_unit_id,
+            Opportunity.metric_type == metric_type,
+        )
+    ).all()
+    active = [o for o in opp_rows if o.status == "进行中"]
+    active_amt = sum(o.estimated_amount for o in active)
+    ytd_gap = ytd_target - ytd_actual
+
+    return {
+        "business_unit_id":   business_unit_id,
+        "business_unit_name": unit.name,
+        "metric_type":        metric_type,
+        "year":               year,
+        "month":              month,
+        "annual_target":      round(annual_target, 2),
+        "ytd_summary": {
+            "actual":   round(ytd_actual, 2),
+            "target":   round(ytd_target, 2),
+            "gap":      round(ytd_gap, 2),
+            "rate":     round(ytd_actual / ytd_target * 100, 1) if ytd_target else 0.0,
+            "prev_ytd": round(prev_ytd, 2),
+            "yoy_rate": round((ytd_actual - prev_ytd) / prev_ytd * 100, 1) if prev_ytd else None,
+        },
+        "monthly_analysis":   monthly_analysis,
+        "quarterly_analysis": quarterly,
+        "opportunity_pipeline": {
+            "total_count":   len(opp_rows),
+            "active_count":  len(active),
+            "active_amount": round(active_amt, 2),
+            "cover_rate":    round(active_amt / ytd_gap * 100, 1) if ytd_gap > 0 else 999.0,
+            "top5_active": [
+                {"name": o.name, "amount": o.estimated_amount, "stage": o.stage, "quarter": o.quarter}
+                for o in sorted(active, key=lambda x: -x.estimated_amount)[:5]
+            ],
+        },
+    }
