@@ -32,14 +32,14 @@ const dlg      = ref(false)
 const STAGES   = ['线索','立项','报价','签约跟进','已完成']
 const STATUSES = ['进行中','已赢单','已输单','已搁置']
 const form     = reactive({
-  name: '', business_unit_id: '', metric_type: 'contract',
+  name: '', business_unit_id: null, metric_type: 'contract',
   year: store.year, quarter: 'Q1',
   estimated_amount: 0, estimated_date: '', stage: '线索', status: '进行中', notes: ''
 })
 
 function openCreate() {
   Object.assign(form, {
-    name: '', business_unit_id: store.units[0]?.id || '',
+    name: '', business_unit_id: store.units[0]?.id ?? null,
     metric_type: 'contract', year: store.year,
     quarter: quarter.value,
     estimated_amount: 0, estimated_date: '', stage: '线索', status: '进行中', notes: ''
