@@ -1,5 +1,6 @@
 import os
-from fastapi import FastAPI
+import secrets
+from fastapi import FastAPI, Body
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
@@ -17,27 +18,29 @@ app.add_middleware(
 )
 
 # ── API Key 认证中间件 ─────────────────────────────────
-SYSTEM_API_KEY = os.environ.get("SYSTEM_API_KEY", "")
-_BYPASS_PREFIXES = ("/docs", "/redoc", "/openapi", "/api/health", "/api/status")
+_api_key_store = {"key": os.environ.get("SYSTEM_API_KEY", "")}
+_BYPASS_PREFIXES = ("/docs", "/redoc", "/openapi", "/api/health", "/api/status", "/api/settings/apikey")
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
-        # 未配置 API Key 时全部放行
-        if not SYSTEM_API_KEY:
+        current_key = _api_key_store["key"]
+        if not current_key:
             return await call_next(request)
-        # 豁免路径
         if request.url.path.startswith(_BYPASS_PREFIXES):
             return await call_next(request)
-        # 内部来源（前端容器、localhost）免认证
         origin = request.headers.get("origin", "")
         host   = request.headers.get("host", "")
+        client_ip = request.client.host if request.client else ""
         if (origin.startswith("http://localhost") or
             origin.startswith("http://frontend") or
             host.startswith("localhost") or
-            host.startswith("127.0.0.1")):
+            host.startswith("127.0.0.1") or
+            host.startswith("backend") or
+            client_ip.startswith("172.") or
+            client_ip.startswith("10.") or
+            client_ip == "127.0.0.1"):
             return await call_next(request)
-        # 外部请求验证 API Key
-        if request.headers.get("X-API-Key", "") != SYSTEM_API_KEY:
+        if request.headers.get("X-API-Key", "") != current_key:
             return JSONResponse(
                 {"success": False, "message": "Unauthorized: Invalid or missing X-API-Key"},
                 status_code=401,
@@ -71,6 +74,31 @@ def health():
 def api_status():
     return {
         "online": True,
-        "api_key_enabled": bool(SYSTEM_API_KEY),
+        "api_key_enabled": bool(_api_key_store["key"]),
         "version": "2.0.0",
     }
+
+
+@app.get("/api/settings/apikey")
+def get_apikey():
+    """获取当前 API Key 状态（不返回明文 Key）"""
+    key = _api_key_store["key"]
+    return {
+        "enabled": bool(key),
+        "preview": (key[:6] + "…" + key[-4:]) if len(key) >= 10 else ("已设置" if key else ""),
+    }
+
+
+@app.post("/api/settings/apikey/generate")
+def generate_apikey():
+    """生成新的随机 API Key 并立即生效"""
+    new_key = secrets.token_urlsafe(32)
+    _api_key_store["key"] = new_key
+    return {"key": new_key, "message": "新 API Key 已生成并生效，请妥善保存"}
+
+
+@app.delete("/api/settings/apikey")
+def clear_apikey():
+    """清除 API Key，关闭认证"""
+    _api_key_store["key"] = ""
+    return {"message": "API Key 已清除，认证已关闭"}

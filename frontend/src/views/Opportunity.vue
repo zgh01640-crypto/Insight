@@ -1,7 +1,8 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
-import { getOppSupport, getOpportunities } from '@/api'
+import { getOppSupport, getOpportunities, createOpportunity } from '@/api'
+import { ElMessage } from 'element-plus'
 import { use } from 'echarts/core'
 import { BarChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, MarkLineComponent } from 'echarts/components'
@@ -26,6 +27,32 @@ const opps      = ref([])
 const divMetric = ref({})
 const getDivMetric = (name) => divMetric.value[name] || 'contract'
 const setDivMetric = (name, m) => { divMetric.value = { ...divMetric.value, [name]: m } }
+
+const dlg      = ref(false)
+const STAGES   = ['线索','立项','报价','签约跟进','已完成']
+const STATUSES = ['进行中','已赢单','已输单','已搁置']
+const form     = reactive({
+  name: '', business_unit_id: '', metric_type: 'contract',
+  year: store.year, quarter: 'Q1',
+  estimated_amount: 0, estimated_date: '', stage: '线索', status: '进行中', notes: ''
+})
+
+function openCreate() {
+  Object.assign(form, {
+    name: '', business_unit_id: store.units[0]?.id || '',
+    metric_type: 'contract', year: store.year,
+    quarter: quarter.value,
+    estimated_amount: 0, estimated_date: '', stage: '线索', status: '进行中', notes: ''
+  })
+  dlg.value = true
+}
+
+async function submitForm() {
+  await createOpportunity({ ...form })
+  ElMessage.success('已创建')
+  dlg.value = false
+  load()
+}
 
 async function load() {
   loading.value = true
@@ -141,6 +168,7 @@ function fmt(n) {
       <el-radio-group v-model="quarter" size="small" @change="load">
         <el-radio-button v-for="q in QUARTERS" :key="q" :value="q">{{ q }}</el-radio-button>
       </el-radio-group>
+      <el-button size="small" type="primary" style="margin-left:auto" @click="openCreate">+ 新增商机</el-button>
       <span v-if="data" style="font-size:12px;color:var(--text-sec)">
         {{ store.year }}年{{ data.quarter }} · {{ data.total_count }}条商机
       </span>
@@ -213,6 +241,47 @@ function fmt(n) {
     </template>
 
     <el-empty v-if="!loading && !data" description="暂无商机数据" />
+
+    <el-dialog v-model="dlg" title="新增商机" width="520px">
+      <el-form :model="form" label-width="90px" size="small">
+        <el-form-item label="商机名称"><el-input v-model="form.name" /></el-form-item>
+        <el-form-item label="所属事业部">
+          <el-select v-model="form.business_unit_id" style="width:100%">
+            <el-option v-for="u in store.units" :key="u.id" :value="u.id" :label="u.name" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="指标类型">
+          <el-select v-model="form.metric_type" style="width:100%">
+            <el-option value="contract" label="合同" />
+            <el-option value="revenue" label="收入" />
+            <el-option value="payment" label="回款" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="所属年度"><el-input-number v-model="form.year" :min="2020" :max="2040" /></el-form-item>
+        <el-form-item label="所属季度">
+          <el-select v-model="form.quarter">
+            <el-option v-for="q in ['Q1','Q2','Q3','Q4']" :key="q" :value="q" :label="q" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="预计金额(万)"><el-input-number v-model="form.estimated_amount" :min="0" :precision="1" /></el-form-item>
+        <el-form-item label="预计时间"><el-input v-model="form.estimated_date" placeholder="YYYY-MM-DD" /></el-form-item>
+        <el-form-item label="商机阶段">
+          <el-select v-model="form.stage">
+            <el-option v-for="s in STAGES" :key="s" :value="s" :label="s" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="商机状态">
+          <el-select v-model="form.status">
+            <el-option v-for="s in STATUSES" :key="s" :value="s" :label="s" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="备注"><el-input v-model="form.notes" type="textarea" :rows="2" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dlg=false">取消</el-button>
+        <el-button type="primary" @click="submitForm">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
