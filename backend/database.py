@@ -10,6 +10,7 @@ SEED_UNITS = [
     {"code": "DSJS", "name": "大数据事业部",   "sort_order": 2},
     {"code": "SZJY", "name": "数字交易事业部", "sort_order": 3},
     {"code": "ZHZW", "name": "智慧政务事业部", "sort_order": 4},
+    {"code": "CXYW", "name": "创新业务事业部", "sort_order": 5},
 ]
 
 
