@@ -128,7 +128,15 @@ class TargetChangeLog(SQLModel, table=True):
     changed_at: datetime = Field(default_factory=datetime.utcnow)
 
 
-# ── CollectionItem ────────────────────────────────────
+# ── MemoryItem ────────────────────────────────────────
+class MemoryItem(SQLModel, table=True):
+    __tablename__ = "memory_item"
+    id:         Optional[int] = Field(default=None, primary_key=True)
+    category:   str = Field(max_length=50)   # 偏好 / 项目 / 人物 / 数据 / 其他
+    content:    str                          # LLM 提炼后的简洁记忆正文
+    source:     str = Field(max_length=20, default="user_command")  # user_command / auto_extract
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 class CollectionItem(SQLModel, table=True):
     __tablename__ = "collection_item"
     id: Optional[int] = Field(default=None, primary_key=True)

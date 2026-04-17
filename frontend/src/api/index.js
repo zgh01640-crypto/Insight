@@ -61,6 +61,10 @@ export const deleteReport  = (id)       => http.delete(`/reports/${id}`)
 // ── AI 聊天文件导入 ───────────────────────────────────
 export const aiParseFile   = (file)     => _upload('/ai/parse-file', file)
 
+// ── 长期记忆 ──────────────────────────────────────────
+export const getMemories   = (category) => http.get('/memory/', { params: category ? { category } : {} })
+export const deleteMemory  = (id)       => http.delete(`/memory/${id}`)
+
 function _upload(url, file) {
   const fd = new FormData()
   fd.append('file', file)

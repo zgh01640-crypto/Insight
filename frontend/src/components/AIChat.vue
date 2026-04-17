@@ -1,7 +1,7 @@
 <script setup>
 import { ref, nextTick, computed, onMounted } from 'vue'
 import { useAppStore } from '@/stores/app'
-import { aiParseFile } from '@/api'
+import { aiParseFile, getMemories, deleteMemory } from '@/api'
 
 const store    = useAppStore()
 const open     = ref(false)
@@ -21,7 +21,8 @@ const availableModels = ref([
 const currentModel = computed(() => availableModels.value.find(m => m.id === selectedModel.value))
 
 // ── 工具调用可视化 ─────────────────────────────────────
-const activeCalls = ref([])   // 当前轮次调用过的工具列表
+const activeCalls = ref([])
+const pendingFileIds = ref([])  // 等待注入 LLM 的文件 pending_id 列表
 
 const TOOL_LABELS = {
   get_overview: '年度仪表盘', get_division: '事业部详情',
@@ -33,6 +34,29 @@ const TOOL_LABELS = {
   import_actuals: '导入月度数据', import_opportunities: '导入商机',
   import_collections: '导入催收', create_opportunity: '新增商机',
   update_opportunity: '更新商机', rollback_import: '撤销导入',
+  save_memory: '保存记忆',
+}
+
+// ── 长期记忆管理 ──────────────────────────────────────
+const showMemory   = ref(false)
+const memoryList   = ref([])
+
+async function loadMemories() {
+  try {
+    const res = await getMemories()
+    memoryList.value = res?.data || []
+  } catch {}
+}
+
+async function removeMemory(id) {
+  await deleteMemory(id)
+  await loadMemories()
+}
+
+// 记忆分类颜色
+const CATEGORY_COLOR = {
+  '偏好': '#3b82f6', '项目': '#10b981', '人物': '#f0a500',
+  '数据': '#a855f7', '其他': '#6b7280',
 }
 
 // ── 记忆系统：会话状态 ────────────────────────────────
@@ -90,7 +114,10 @@ function fmtTime(iso) {
   return `${d.getMonth()+1}/${d.getDate()}`
 }
 
-onMounted(loadSessions)
+onMounted(() => {
+  loadSessions()
+  loadMemories()
+})
 
 // 拖拽左侧边缘横向拉伸
 function startResize(e) {
@@ -151,12 +178,16 @@ async function send() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        messages: messages.value.slice(0, -1).map(m => ({ role: m.role, content: m.content })),
+        messages: messages.value.slice(0, -1)
+          .filter(m => ['user','assistant'].includes(m.role))
+          .map(m => ({ role: m.role, content: m.content })),
         year: store.year,
         model_id: selectedModel.value,
         session_id: sessionId.value,
+        pending_ids: pendingFileIds.value,
       }),
     })
+    pendingFileIds.value = []  // 消费后清空
 
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
@@ -202,6 +233,19 @@ function onKeydown(e) {
   }
 }
 
+function onPaste(e) {
+  const items = e.clipboardData?.items
+  if (!items) return
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault()
+      const file = item.getAsFile()
+      if (file) handleFile(file)
+      return
+    }
+  }
+}
+
 function clearMessages() {
   messages.value = []
   sessionId.value = null
@@ -211,14 +255,11 @@ async function selectFileDialog() {
   return new Promise((resolve) => {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = '.xlsx,.xls,.csv'
+    input.accept = '.xlsx,.xls,.csv,.png,.jpg,.jpeg,.webp,.pdf,.docx'
     input.addEventListener('change', (e) => {
       const file = e.target.files?.[0]
-      if (file) {
-        resolve(file)
-      } else {
-        resolve(null)
-      }
+      if (file) resolve(file)
+      else resolve(null)
     })
     input.click()
   })
@@ -248,17 +289,22 @@ async function handleFile(file) {
       return
     }
     const data = res.data
-    // 插入文件预览卡片（特殊消息类型）
+    // 把 pending_id 加入待发送列表
+    pendingFileIds.value.push(data.pending_id)
+    // 插入文件预览卡片
     messages.value.push({
       role: 'file-preview',
       content: '',
       fileInfo: {
-        filename: data.filename,
-        importType: data.import_type,
-        rowCount: data.row_count,
-        columns: data.columns,
-        sampleRows: data.sample_rows,
-        pendingId: data.pending_id,
+        filename:   data.filename,
+        fileType:   data.file_type,          // image / document / spreadsheet
+        importType: data.import_type || null,
+        rowCount:   data.row_count || null,
+        columns:    data.columns || [],
+        sampleRows: data.sample_rows || [],
+        preview:    data.preview || '',
+        pendingId:  data.pending_id,
+        canMemorize: data.can_memorize,
       }
     })
     scrollBottom()
@@ -271,13 +317,18 @@ async function handleFile(file) {
 }
 
 function confirmImport(fileInfo) {
-  // 点确认后构造发送消息
-  const text = `请帮我导入文件「${fileInfo.filename}」，pending_id=${fileInfo.pendingId}`
+  const text = fileInfo.fileType === 'spreadsheet'
+    ? `请帮我导入文件「${fileInfo.filename}」，pending_id=${fileInfo.pendingId}`
+    : `我已上传文件「${fileInfo.filename}」，请帮我分析这份${fileInfo.fileType === 'image' ? '图片' : '文档'}的内容。`
   input.value = text
   send()
 }
 
 function cancelImport(idx) {
+  const fi = messages.value[idx]?.fileInfo
+  if (fi) {
+    pendingFileIds.value = pendingFileIds.value.filter(id => id !== fi.pendingId)
+  }
   messages.value.splice(idx, 1)
 }
 function renderMd(text) {
@@ -345,8 +396,16 @@ function renderMd(text) {
         </div>
         <div class="chat-header-right">
           <span class="chat-year">{{ store.year }}年</span>
+          <!-- 记忆管理按钮 -->
+          <button class="clear-btn" @click="showMemory = !showMemory; if(showMemory){loadMemories();showHistory=false}"
+            :title="showMemory ? '关闭记忆' : '长期记忆'"
+            :style="{ color: showMemory ? 'var(--accent)' : '' }">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/>
+            </svg>
+          </button>
           <!-- 历史记录按钮 -->
-          <button class="clear-btn" @click="showHistory = !showHistory" :title="showHistory ? '关闭历史' : '历史记录'" :style="{ color: showHistory ? 'var(--accent)' : '' }">
+          <button class="clear-btn" @click="showHistory = !showHistory; if(showHistory){showMemory=false}" :title="showHistory ? '关闭历史' : '历史记录'" :style="{ color: showHistory ? 'var(--accent)' : '' }">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
             </svg>
@@ -384,6 +443,26 @@ function renderMd(text) {
         </div>
       </transition>
 
+      <!-- 记忆管理侧边栏 -->
+      <transition name="history-slide">
+        <div v-if="showMemory" class="history-panel memory-panel">
+          <div class="history-header">
+            <span>长期记忆</span>
+            <span style="font-size:10px;color:var(--text-dim)">{{ memoryList.length }} 条</span>
+          </div>
+          <div class="history-list">
+            <div v-if="!memoryList.length" class="history-empty">暂无记忆，对小助说「记住：...」即可保存</div>
+            <div v-for="m in memoryList" :key="m.id" class="memory-item">
+              <div class="memory-item-body">
+                <span class="memory-cat" :style="{ background: CATEGORY_COLOR[m.category] + '22', color: CATEGORY_COLOR[m.category] }">{{ m.category }}</span>
+                <span class="memory-content">{{ m.content }}</span>
+              </div>
+              <button class="history-del" @click="removeMemory(m.id)" title="删除">×</button>
+            </div>
+          </div>
+        </div>
+      </transition>
+
       <!-- 消息区 -->
       <div class="chat-body" ref="bodyRef" @dragover.prevent @drop.prevent="onFileDrop">
         <div v-if="!messages.length" class="chat-empty">
@@ -412,24 +491,53 @@ function renderMd(text) {
         <template v-for="(msg, i) in messages" :key="i">
           <!-- 文件预览卡片 -->
           <div v-if="msg.role === 'file-preview'" class="file-card">
-            <div class="file-card-header">
-              <span class="file-card-icon">📄</span>
-              <span class="file-card-name">{{ msg.fileInfo.filename }}</span>
-              <span class="file-card-badge">{{ msg.fileInfo.importType }}</span>
-            </div>
-            <div class="file-card-meta">
-              共 <b>{{ msg.fileInfo.rowCount }}</b> 行 &nbsp;·&nbsp;
-              列名：{{ msg.fileInfo.columns.join('、') }}
-            </div>
-            <div class="file-card-sample">
-              <div v-for="(row, ri) in msg.fileInfo.sampleRows.slice(0,2)" :key="ri" class="file-card-row">
-                {{ Object.values(row).join(' | ') }}
+            <!-- 图片预览 -->
+            <template v-if="msg.fileInfo.fileType === 'image'">
+              <div class="file-card-header">
+                <span class="file-card-icon">🖼️</span>
+                <span class="file-card-name">{{ msg.fileInfo.filename }}</span>
+                <span class="file-card-badge" style="background:rgba(59,130,246,.15);color:#3b82f6;border-color:rgba(59,130,246,.3)">图片</span>
               </div>
-            </div>
-            <div class="file-card-actions">
-              <button class="file-card-btn file-card-btn--primary" @click="confirmImport(msg.fileInfo)">确认导入</button>
-              <button class="file-card-btn" @click="cancelImport(i)">取消</button>
-            </div>
+              <div class="file-card-meta" style="color:var(--text-sec)">{{ msg.fileInfo.preview }}</div>
+              <div class="file-card-actions">
+                <button class="file-card-btn file-card-btn--primary" @click="confirmImport(msg.fileInfo)">发送给小助分析</button>
+                <button class="file-card-btn" @click="cancelImport(i)">取消</button>
+              </div>
+            </template>
+            <!-- 文档预览（PDF/Word） -->
+            <template v-else-if="msg.fileInfo.fileType === 'document'">
+              <div class="file-card-header">
+                <span class="file-card-icon">📄</span>
+                <span class="file-card-name">{{ msg.fileInfo.filename }}</span>
+                <span class="file-card-badge" style="background:rgba(168,85,247,.15);color:#a855f7;border-color:rgba(168,85,247,.3)">文档</span>
+              </div>
+              <div class="file-card-meta">{{ msg.fileInfo.preview }}</div>
+              <div class="file-card-actions">
+                <button class="file-card-btn file-card-btn--primary" @click="confirmImport(msg.fileInfo)">发送给小助分析</button>
+                <button class="file-card-btn" @click="cancelImport(i)">取消</button>
+              </div>
+            </template>
+            <!-- 表格预览（Excel/CSV） -->
+            <template v-else>
+              <div class="file-card-header">
+                <span class="file-card-icon">📄</span>
+                <span class="file-card-name">{{ msg.fileInfo.filename }}</span>
+                <span class="file-card-badge">{{ msg.fileInfo.importType }}</span>
+              </div>
+              <div class="file-card-meta">
+                共 <b>{{ msg.fileInfo.rowCount }}</b> 行 &nbsp;·&nbsp;
+                列名：{{ msg.fileInfo.columns.join('、') }}
+              </div>
+              <div class="file-card-sample">
+                <div v-for="(row, ri) in msg.fileInfo.sampleRows.slice(0,2)" :key="ri" class="file-card-row">
+                  {{ Object.values(row).join(' | ') }}
+                </div>
+              </div>
+              <div class="file-card-actions">
+                <button class="file-card-btn file-card-btn--primary" @click="confirmImport(msg.fileInfo)">确认导入</button>
+                <button class="file-card-btn" @click="cancelImport(i)">取消</button>
+              </div>
+            </template>
           </div>
           <!-- 系统错误提示 -->
           <div v-else-if="msg.role === 'system-error'" class="system-error">⚠ {{ msg.content }}</div>
@@ -461,6 +569,7 @@ function renderMd(text) {
           placeholder="输入问题，Enter 发送，Shift+Enter 换行"
           rows="2"
           @keydown="onKeydown"
+          @paste="onPaste"
           :disabled="thinking"
         />
         <button class="attach-btn" @click="handleAttachClick"
@@ -513,6 +622,7 @@ export default {
           { icon: '🗓', label: '查看年度目标',       text: '今年各事业部年度目标是多少？' },
           { icon: '➕', label: '新增商机',           text: '我想新增一条商机，请引导我填写信息。' },
           { icon: '📅', label: '本月完成情况',       text: '本月各事业部完成情况怎么样？' },
+          { icon: '🧠', label: '查看长期记忆',       text: '列出我所有的长期记忆' },
         ]
       },
     ]
@@ -779,6 +889,19 @@ export default {
   border-bottom: 1px solid var(--bg-border, #1e2a38); border-radius: 0 0 0 8px;
   z-index: 10; display: flex; flex-direction: column; max-height: 320px;
 }
+
+/* 记忆侧边栏（宽一点，放内容） */
+.memory-panel { width: 260px; max-height: 400px; }
+.memory-item {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.04); gap: 6px;
+}
+.memory-item-body { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.memory-cat {
+  display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 1px;
+  padding: 1px 6px; border-radius: 3px; border: 1px solid transparent; width: fit-content;
+}
+.memory-content { font-size: 11px; color: var(--text-main); line-height: 1.5; }
 .history-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 12px; border-bottom: 1px solid var(--bg-border, #1e2a38);

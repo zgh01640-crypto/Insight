@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import base64
 import tempfile
 import pandas as pd
 from datetime import date, datetime
@@ -11,7 +12,7 @@ from typing import List, Optional
 from openai import OpenAI
 from sqlmodel import Session, select
 from database import get_session
-from models import ImportBatch, MonthlyActual, Opportunity, CollectionItem, ConversationSession, ConversationMessage
+from models import ImportBatch, MonthlyActual, Opportunity, CollectionItem, ConversationSession, ConversationMessage, MemoryItem
 from schemas import ApiResponse
 from routers.dashboard import (
     overview, division_detail, quarterly_dashboard,
@@ -371,6 +372,28 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "save_memory",
+            "description": "将重要信息保存为长期记忆条目，下次对话自动注入上下文。当用户说'记住'、'记下来'、'保存这个信息'时调用。将信息提炼成简洁条目再保存。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "enum": ["偏好", "项目", "人物", "数据", "其他"],
+                        "description": "记忆分类：偏好=用户习惯/喜好，项目=具体项目信息，人物=人员信息，数据=重要数字，其他=不属于以上分类"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "提炼后的简洁记忆内容，50字以内，去除冗余"
+                    }
+                },
+                "required": ["category", "content"]
+            }
+        }
+    },
 ]
 
 # ── Tool 执行 ─────────────────────────────────────────
@@ -561,6 +584,16 @@ def _execute_tool(name: str, args: dict, session: Session) -> str:
             body = OpportunityUpdate(**merged)
             result = _update_opp(opp_id=opp_id, body=body, session=session)
             return json.dumps(result.data, ensure_ascii=False, default=str)
+        elif name == "save_memory":
+            item = MemoryItem(
+                category=args["category"],
+                content=args["content"],
+                source="user_command",
+            )
+            session.add(item)
+            session.commit()
+            session.refresh(item)
+            return json.dumps({"saved": True, "id": item.id, "content": item.content, "category": item.category}, ensure_ascii=False)
         else:
             return json.dumps({"error": f"未知工具: {name}"}, ensure_ascii=False)
         return json.dumps(result.data, ensure_ascii=False, default=str)
@@ -576,7 +609,8 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     year: int = None
     model_id: str = DEFAULT_MODEL
-    session_id: Optional[str] = None  # 传入则追加到该会话，不传则不持久化
+    session_id: Optional[str] = None
+    pending_ids: List[str] = []   # 待注入的文件 pending_id 列表
 
 # ── SSE 流式聊天端点 ───────────────────────────────────
 @router.post("/chat")
@@ -607,10 +641,58 @@ def chat(req: ChatRequest, session: Session = Depends(get_session)):
 5. 发现异常（达成率低于60%、同比下滑超20%）时主动提示
 6. 用户上传文件后，展示数据摘要并主动询问是否导入，导入后汇报结果
 7. 用户要新增商机时，补全缺失字段后调用 create_opportunity 工具，操作成功后告知用户
-8. 用户要修改商机时，先用 get_opportunities 查询确认 ID，再调用 update_opportunity"""
+8. 用户要修改商机时，先用 get_opportunities 查询确认 ID，再调用 update_opportunity
+9. 用户说「记住」时调用 save_memory 工具，将信息提炼成简洁条目保存，并告知用户已记录"""
+
+    # 注入长期记忆
+    memories = session.exec(
+        select(MemoryItem).order_by(MemoryItem.created_at.desc()).limit(20)
+    ).all()
+    if memories:
+        mem_lines = "\n".join([f"- [{m.category}] {m.content}" for m in memories])
+        system_prompt += f"\n\n## 你的长期记忆（用户历史保存，每次对话自动注入）\n{mem_lines}"
 
     messages = [{"role": "system", "content": system_prompt}]
-    messages += [{"role": m.role, "content": m.content} for m in req.messages[-10:]]
+
+    # 构造对话历史，处理 pending_ids 中的文件内容
+    history = [{"role": m.role, "content": m.content} for m in req.messages[-10:]]
+
+    # 把 pending_ids 注入最后一条 user 消息
+    if req.pending_ids and history:
+        last_user_idx = None
+        for i in range(len(history) - 1, -1, -1):
+            if history[i]["role"] == "user":
+                last_user_idx = i
+                break
+        if last_user_idx is not None:
+            injections = []
+            vision_parts = []
+            for pid in req.pending_ids:
+                pending = _pending_imports.get(pid)
+                if not pending:
+                    continue
+                if pending["type"] == "image":
+                    # 视觉内容：构造 image_url part（Claude/GPT-4V 格式）
+                    vision_parts.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{pending['mime']};base64,{pending['b64']}"}
+                    })
+                elif pending["type"] == "document":
+                    text = pending["text"][:3000]  # 限制长度
+                    injections.append(f"[附件：{pending['filename']}]\n{text}")
+            if vision_parts or injections:
+                orig_content = history[last_user_idx]["content"]
+                if vision_parts:
+                    # 视觉模型：content 改为 list 格式
+                    parts = [{"type": "text", "text": orig_content}]
+                    if injections:
+                        parts[0]["text"] = "\n\n".join(injections) + "\n\n" + orig_content
+                    parts.extend(vision_parts)
+                    history[last_user_idx]["content"] = parts
+                else:
+                    history[last_user_idx]["content"] = "\n\n".join(injections) + "\n\n" + orig_content
+
+    messages += history
 
     client = _llm_client(req.model_id)
     model_name = MODELS.get(req.model_id, MODELS[DEFAULT_MODEL])["model"]
@@ -684,15 +766,113 @@ def chat(req: ChatRequest, session: Session = Depends(get_session)):
 # ── 文件解析端点 ───────────────────────────────────────
 @router.post("/parse-file")
 async def ai_parse_file(file: UploadFile = File(...)):
-    """Parse uploaded Excel/CSV file, detect type, return preview without writing to DB"""
-    suffix = os.path.splitext(file.filename)[1] or ".xlsx"
+    """Parse uploaded file (Excel/CSV/image/PDF/Word), return preview without writing to DB"""
+    suffix = os.path.splitext(file.filename)[1].lower() or ".xlsx"
+    raw = await file.read()
+
+    # ── 图片类型 ───────────────────────────────────────
+    IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+    if suffix in IMAGE_EXTS:
+        mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                    ".webp": "image/webp", ".gif": "image/gif"}
+        b64 = base64.b64encode(raw).decode("utf-8")
+        pending_id = str(uuid.uuid4())[:8]
+        _pending_imports[pending_id] = {
+            "type": "image",
+            "mime": mime_map.get(suffix, "image/png"),
+            "b64": b64,
+            "filename": file.filename,
+        }
+        size_kb = len(raw) // 1024
+        return JSONResponse(content={
+            "success": True, "message": "",
+            "data": {
+                "pending_id": pending_id,
+                "file_type": "image",
+                "filename": file.filename,
+                "preview": f"图片已就绪（{size_kb} KB），请用支持视觉的模型（如 Claude）询问图片内容",
+                "can_memorize": True,
+            }
+        })
+
+    # ── PDF 类型 ───────────────────────────────────────
+    if suffix == ".pdf":
+        try:
+            import pdfplumber
+            import io
+            text_parts = []
+            page_count = 0
+            with pdfplumber.open(io.BytesIO(raw)) as pdf:
+                page_count = len(pdf.pages)
+                for page in pdf.pages[:50]:   # 最多读50页
+                    t = page.extract_text()
+                    if t:
+                        text_parts.append(t)
+            full_text = "\n".join(text_parts)
+        except Exception as e:
+            return JSONResponse(content={"success": False, "message": f"PDF 解析失败：{e}", "data": None})
+        pending_id = str(uuid.uuid4())[:8]
+        _pending_imports[pending_id] = {
+            "type": "document",
+            "text": full_text,
+            "filename": file.filename,
+            "page_count": page_count,
+        }
+        preview_text = full_text[:150].replace("\n", " ")
+        return JSONResponse(content={
+            "success": True, "message": "",
+            "data": {
+                "pending_id": pending_id,
+                "file_type": "document",
+                "filename": file.filename,
+                "preview": f"PDF 共 {page_count} 页，提取文字 {len(full_text)} 字。前150字：{preview_text}…",
+                "can_memorize": True,
+            }
+        })
+
+    # ── Word 类型 ──────────────────────────────────────
+    if suffix in (".docx", ".doc"):
+        try:
+            import docx
+            import io
+            doc = docx.Document(io.BytesIO(raw))
+            paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+            full_text = "\n".join(paragraphs)
+        except Exception as e:
+            return JSONResponse(content={"success": False, "message": f"Word 解析失败：{e}", "data": None})
+        pending_id = str(uuid.uuid4())[:8]
+        _pending_imports[pending_id] = {
+            "type": "document",
+            "text": full_text,
+            "filename": file.filename,
+            "page_count": None,
+        }
+        preview_text = full_text[:150].replace("\n", " ")
+        return JSONResponse(content={
+            "success": True, "message": "",
+            "data": {
+                "pending_id": pending_id,
+                "file_type": "document",
+                "filename": file.filename,
+                "preview": f"Word 文档，提取文字 {len(full_text)} 字。前150字：{preview_text}…",
+                "can_memorize": True,
+            }
+        })
+
+    # ── 表格类型（原有逻辑）────────────────────────────
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(await file.read())
+        tmp.write(raw)
         path = tmp.name
     try:
         df = pd.read_excel(path) if suffix != ".csv" else pd.read_csv(path)
-    finally:
+    except Exception as e:
         os.unlink(path)
+        return JSONResponse(content={"success": False, "message": f"表格解析失败：{e}", "data": None})
+    finally:
+        try:
+            os.unlink(path)
+        except Exception:
+            pass
 
     cols = set(df.columns.tolist())
     actuals_cols     = {"年份", "月份", "事业部", "指标类型", "完成值"}
@@ -709,17 +889,15 @@ async def ai_parse_file(file: UploadFile = File(...)):
         import_type = "collections"
         type_label  = "催收项目数据"
     else:
-        error_response = {
+        return JSONResponse(content={
             "success": False,
             "message": f"无法识别文件格式，列名：{sorted(cols)}",
             "data": None,
-        }
-        return JSONResponse(content=error_response)
+        })
 
     pending_id = str(uuid.uuid4())[:8]
     _pending_imports[pending_id] = {"type": import_type, "df": df, "filename": file.filename}
 
-    # 转换示例行，确保所有值都是 JSON 可序列化的原生 Python 类型
     sample_df = df.head(3)
     sample = []
     for _, row in sample_df.iterrows():
@@ -730,20 +908,21 @@ async def ai_parse_file(file: UploadFile = File(...)):
             elif isinstance(v, (int, float, str, bool)):
                 row_dict[k] = v
             else:
-                # 处理 numpy 类型
                 row_dict[k] = str(v)
         sample.append(row_dict)
 
-    response = {
+    return JSONResponse(content={
         "success": True,
         "message": "",
         "data": {
             "pending_id":  pending_id,
+            "file_type":   "spreadsheet",
             "import_type": type_label,
             "filename":    file.filename,
-            "row_count":   int(len(df)),  # 确保是 Python int
-            "columns":     [str(c) for c in df.columns],  # 确保是 Python str
+            "preview":     f"{type_label}，共 {int(len(df))} 行",
+            "row_count":   int(len(df)),
+            "columns":     [str(c) for c in df.columns],
             "sample_rows": sample,
+            "can_memorize": False,
         }
-    }
-    return JSONResponse(content=response)
+    })
