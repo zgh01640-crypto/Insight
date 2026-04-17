@@ -20,10 +20,25 @@ const availableModels = ref([
 ])
 const currentModel = computed(() => availableModels.value.find(m => m.id === selectedModel.value))
 
+// ── 工具调用可视化 ─────────────────────────────────────
+const activeCalls = ref([])   // 当前轮次调用过的工具列表
+
+const TOOL_LABELS = {
+  get_overview: '年度仪表盘', get_division: '事业部详情',
+  get_quarterly: '季度看板', get_monthly: '月度看板',
+  get_opp_support: '商机分析', get_opportunities: '商机列表',
+  get_collections: '催收明细', get_collection_dashboard: '催收总览',
+  get_targets: '年度目标', get_trend: '同比趋势',
+  detect_anomalies: '异常检测', analyze_root_cause: '根因分析',
+  import_actuals: '导入月度数据', import_opportunities: '导入商机',
+  import_collections: '导入催收', create_opportunity: '新增商机',
+  update_opportunity: '更新商机', rollback_import: '撤销导入',
+}
+
 // ── 记忆系统：会话状态 ────────────────────────────────
-const sessionId    = ref(null)   // 当前会话 ID
-const sessions     = ref([])     // 历史会话列表
-const showHistory  = ref(false)  // 历史侧边栏开关
+const sessionId    = ref(null)
+const sessions     = ref([])
+const showHistory  = ref(false)
 
 async function loadSessions() {
   try {
@@ -106,6 +121,7 @@ async function send() {
   input.value = ''
   messages.value.push({ role: 'user', content: text })
   thinking.value = true
+  activeCalls.value = []
   scrollBottom()
 
   // 首条消息时自动创建会话
@@ -158,7 +174,12 @@ async function send() {
         if (payload === '[DONE]') break
         try {
           const chunk = JSON.parse(payload)
-          if (chunk.text) {
+          if (chunk.tool_call) {
+            // 工具调用可视化：追加到 activeCalls
+            const label = TOOL_LABELS[chunk.tool_call] || chunk.tool_call
+            activeCalls.value.push(label)
+            scrollBottom()
+          } else if (chunk.text) {
             messages.value[idx].content += chunk.text
             scrollBottom()
           }
@@ -169,6 +190,7 @@ async function send() {
     messages.value[idx].content = '请求失败，请检查网络或 API Key 配置。'
   } finally {
     thinking.value = false
+    activeCalls.value = []
     scrollBottom()
   }
 }
@@ -217,44 +239,46 @@ function onFileDrop(e) {
 }
 
 async function handleFile(file) {
-  console.log('handleFile called with:', file.name)
   fileUploading.value = true
   try {
-    console.log('Calling aiParseFile...')
     const res = await aiParseFile(file)
-    console.log('aiParseFile response:', res)
-
-    if (!res || typeof res !== 'object' || !res.success) {
-      const msg = res?.message || '文件解析失败'
-      alert('错误：' + msg)
+    if (!res?.success || !res.data) {
+      messages.value.push({ role: 'system-error', content: res?.message || '文件解析失败，请检查文件格式。' })
+      scrollBottom()
       return
     }
-
-    if (!res.data) {
-      alert('服务器返回数据无效')
-      return
-    }
-
     const data = res.data
-    if (!Array.isArray(data.sample_rows)) {
-      alert('样本数据格式错误')
-      return
-    }
-
-    const sample = data.sample_rows.map(r => JSON.stringify(r)).join('\n')
-    input.value =
-      `我上传了文件「${data.filename}」，类型：${data.import_type}，共 ${data.row_count} 行。\n` +
-      `列名：${data.columns.join('、')}\n` +
-      `前3行样本：\n${sample}\n\n` +
-      `pending_id=${data.pending_id}\n\n` +
-      `请确认数据无误后帮我导入数据库。`
-    await send()
+    // 插入文件预览卡片（特殊消息类型）
+    messages.value.push({
+      role: 'file-preview',
+      content: '',
+      fileInfo: {
+        filename: data.filename,
+        importType: data.import_type,
+        rowCount: data.row_count,
+        columns: data.columns,
+        sampleRows: data.sample_rows,
+        pendingId: data.pending_id,
+      }
+    })
+    scrollBottom()
   } catch(err) {
-    console.error('Error in handleFile:', err)
-    alert('上传出错：' + (err?.message || '网络错误'))
+    messages.value.push({ role: 'system-error', content: '上传出错：' + (err?.message || '网络错误') })
+    scrollBottom()
   } finally {
     fileUploading.value = false
   }
+}
+
+function confirmImport(fileInfo) {
+  // 点确认后构造发送消息
+  const text = `请帮我导入文件「${fileInfo.filename}」，pending_id=${fileInfo.pendingId}`
+  input.value = text
+  send()
+}
+
+function cancelImport(idx) {
+  messages.value.splice(idx, 1)
 }
 function renderMd(text) {
   if (!text) return ''
@@ -368,24 +392,65 @@ function renderMd(text) {
               <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/>
             </svg>
           </div>
-          <p class="empty-title">你好，我是经营分析智能体</p>
-          <p class="empty-sub">试试这些问题：</p>
-          <div class="suggestions">
-            <button v-for="q in suggestions" :key="q" class="suggestion" @click="input = q; send()">{{ q }}</button>
+          <p class="empty-title">你好，我是经营分析智能体「小助」</p>
+          <div class="quick-grid">
+            <div v-for="group in quickGroups" :key="group.label" class="quick-group">
+              <div class="quick-group-label">{{ group.label }}</div>
+              <button
+                v-for="item in group.items" :key="item.text || item.label"
+                class="quick-item"
+                :class="{ 'quick-item--upload': item.upload }"
+                @click="item.upload ? handleAttachClick() : (input = item.text, send())"
+              >
+                <span class="quick-item-icon">{{ item.icon }}</span>
+                <span>{{ item.label }}</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        <div v-for="(msg, i) in messages" :key="i" :class="['chat-msg', msg.role]">
-          <template v-if="!(thinking && i === messages.length - 1 && msg.role === 'assistant' && !msg.content)">
-            <div v-if="msg.role === 'assistant'" class="avatar">AI</div>
-            <div class="bubble" v-html="renderMd(msg.content)"></div>
-          </template>
-        </div>
+        <template v-for="(msg, i) in messages" :key="i">
+          <!-- 文件预览卡片 -->
+          <div v-if="msg.role === 'file-preview'" class="file-card">
+            <div class="file-card-header">
+              <span class="file-card-icon">📄</span>
+              <span class="file-card-name">{{ msg.fileInfo.filename }}</span>
+              <span class="file-card-badge">{{ msg.fileInfo.importType }}</span>
+            </div>
+            <div class="file-card-meta">
+              共 <b>{{ msg.fileInfo.rowCount }}</b> 行 &nbsp;·&nbsp;
+              列名：{{ msg.fileInfo.columns.join('、') }}
+            </div>
+            <div class="file-card-sample">
+              <div v-for="(row, ri) in msg.fileInfo.sampleRows.slice(0,2)" :key="ri" class="file-card-row">
+                {{ Object.values(row).join(' | ') }}
+              </div>
+            </div>
+            <div class="file-card-actions">
+              <button class="file-card-btn file-card-btn--primary" @click="confirmImport(msg.fileInfo)">确认导入</button>
+              <button class="file-card-btn" @click="cancelImport(i)">取消</button>
+            </div>
+          </div>
+          <!-- 系统错误提示 -->
+          <div v-else-if="msg.role === 'system-error'" class="system-error">⚠ {{ msg.content }}</div>
+          <!-- 普通消息气泡 -->
+          <div v-else :class="['chat-msg', msg.role]">
+            <template v-if="!(thinking && i === messages.length - 1 && msg.role === 'assistant' && !msg.content)">
+              <div v-if="msg.role === 'assistant'" class="avatar">AI</div>
+              <div class="bubble" v-html="renderMd(msg.content)"></div>
+            </template>
+          </div>
+        </template>
 
         <!-- 实时状态提示 -->
         <div v-if="thinking" class="status-toast">
           <span class="dot-wave"><span/><span/><span/></span>
-          <span>{{ currentModel?.label }}（{{ currentModel?.model }}）正在思考...</span>
+          <div class="status-toast-inner">
+            <span>{{ currentModel?.label }} 思考中...</span>
+            <div v-if="activeCalls.length" class="tool-calls">
+              <span v-for="(call, ci) in activeCalls" :key="ci" class="tool-call-tag">⚡ {{ call }}</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -413,13 +478,43 @@ function renderMd(text) {
 </template>
 
 <script>
-// 示例问题（放在 Options API 方便单独维护）
+// 快捷操作分组（放在 Options API 方便单独维护）
 export default {
   data: () => ({
-    suggestions: [
-      '产品中心今年整体完成率怎么样？',
-      '哪个事业部合同达成率最低？',
-      '本季度商机完成情况如何？',
+    quickGroups: [
+      {
+        label: '📊 数据查询',
+        items: [
+          { icon: '📈', label: '今年整体完成率',     text: '今年产品中心整体完成率怎么样？' },
+          { icon: '🏆', label: '各事业部达成排名',   text: '各事业部合同达成率排名如何？' },
+          { icon: '🎯', label: '本季度商机覆盖',     text: '本季度商机覆盖情况如何？' },
+          { icon: '💰', label: '催收回款情况',       text: '今年催收回款率是多少？' },
+        ]
+      },
+      {
+        label: '📥 数据导入',
+        items: [
+          { icon: '📋', label: '上传月度数据', upload: true },
+          { icon: '💼', label: '上传商机数据', upload: true },
+          { icon: '🔖', label: '上传催收数据', upload: true },
+        ]
+      },
+      {
+        label: '🔍 异常分析',
+        items: [
+          { icon: '🩺', label: '整体健康体检',       text: '帮我做产品中心整体健康体检，有哪些异常？' },
+          { icon: '📉', label: '大数据事业部分析',   text: '大数据事业部最近表现如何，有没有问题？' },
+          { icon: '📊', label: '同比趋势分析',       text: '今年合同收入与去年同比趋势如何？' },
+        ]
+      },
+      {
+        label: '⚡ 快捷操作',
+        items: [
+          { icon: '🗓', label: '查看年度目标',       text: '今年各事业部年度目标是多少？' },
+          { icon: '➕', label: '新增商机',           text: '我想新增一条商机，请引导我填写信息。' },
+          { icon: '📅', label: '本月完成情况',       text: '本月各事业部完成情况怎么样？' },
+        ]
+      },
     ]
   })
 }
@@ -506,18 +601,75 @@ export default {
 }
 
 /* 空状态 */
-.chat-empty { display: flex; flex-direction: column; align-items: center; padding-top: 20px; }
-.empty-icon { margin-bottom: 12px; }
-.empty-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
-.empty-sub { font-size: 11px; color: var(--text-sec, #7a8fa6); margin-bottom: 12px; }
-.suggestions { display: flex; flex-direction: column; gap: 6px; width: 100%; }
-.suggestion {
-  text-align: left; padding: 8px 12px; font-size: 12px;
-  background: var(--bg-border, #1e2a38); border: 1px solid transparent;
-  border-radius: 8px; cursor: pointer; color: var(--text-main, #e2e8f0);
-  transition: border-color .15s, background .15s;
+.chat-empty { display: flex; flex-direction: column; align-items: center; padding-top: 12px; width: 100%; }
+.empty-icon { margin-bottom: 8px; }
+.empty-title { font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+
+/* 快捷卡片网格 */
+.quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
+.quick-group { background: var(--bg-base); border: 1px solid var(--bg-border); border-radius: 8px; padding: 10px; }
+.quick-group-label { font-size: 10px; color: var(--text-sec); font-weight: 600; letter-spacing: 1px; margin-bottom: 6px; }
+.quick-item {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 6px 8px; font-size: 12px; text-align: left;
+  background: none; border: 1px solid transparent;
+  border-radius: 6px; cursor: pointer; color: var(--text-main);
+  transition: background .15s, border-color .15s; margin-bottom: 2px;
 }
-.suggestion:hover { border-color: var(--accent, #f0a500); background: rgba(240,165,0,.08); }
+.quick-item:hover { background: rgba(240,165,0,.08); border-color: rgba(240,165,0,.3); }
+.quick-item--upload { color: var(--accent); }
+.quick-item-icon { font-size: 13px; flex-shrink: 0; }
+
+/* 工具调用状态 */
+.status-toast {
+  display: flex; align-items: flex-start; gap: 7px;
+  font-size: 11px; color: var(--accent, #f0a500);
+  padding: 8px 10px; border-radius: 8px;
+  background: rgba(240,165,0,.08); border: 1px solid rgba(240,165,0,.2);
+  align-self: center; width: fit-content; margin: 0 auto; max-width: 90%;
+}
+.status-toast-inner { display: flex; flex-direction: column; gap: 4px; }
+.tool-calls { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.tool-call-tag {
+  font-size: 10px; background: rgba(240,165,0,.12);
+  border: 1px solid rgba(240,165,0,.2); border-radius: 4px;
+  padding: 1px 6px; color: var(--accent);
+}
+
+/* 文件预览卡片 */
+.file-card {
+  background: rgba(16, 185, 129, .05); border: 1px solid rgba(16,185,129,.25);
+  border-radius: 10px; padding: 12px 14px; font-size: 12px;
+}
+.file-card-header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.file-card-icon { font-size: 16px; }
+.file-card-name { font-weight: 600; flex: 1; color: var(--text-main); }
+.file-card-badge {
+  font-size: 10px; background: rgba(16,185,129,.15); color: var(--green);
+  border-radius: 4px; padding: 1px 7px; border: 1px solid rgba(16,185,129,.3);
+}
+.file-card-meta { color: var(--text-sec); margin-bottom: 6px; }
+.file-card-meta b { color: var(--text-main); font-family: var(--mono); }
+.file-card-sample { background: rgba(0,0,0,.2); border-radius: 5px; padding: 6px 8px; margin-bottom: 8px; }
+.file-card-row { font-family: var(--mono); font-size: 10px; color: var(--text-sec); line-height: 1.6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-card-actions { display: flex; gap: 8px; }
+.file-card-btn {
+  padding: 5px 14px; border-radius: 6px; border: 1px solid var(--bg-border);
+  font-size: 12px; cursor: pointer; background: var(--bg-base); color: var(--text-main);
+  transition: background .15s;
+}
+.file-card-btn:hover { background: rgba(255,255,255,.07); }
+.file-card-btn--primary {
+  background: var(--green); color: #000; border-color: var(--green); font-weight: 600;
+}
+.file-card-btn--primary:hover { opacity: .85; }
+
+/* 系统错误 */
+.system-error {
+  font-size: 12px; color: var(--red, #ef4444);
+  background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.2);
+  border-radius: 7px; padding: 7px 12px;
+}
 
 /* 气泡 */
 .chat-msg { display: flex; align-items: flex-start; gap: 8px; }

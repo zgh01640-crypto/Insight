@@ -16,11 +16,13 @@ from schemas import ApiResponse
 from routers.dashboard import (
     overview, division_detail, quarterly_dashboard,
     monthly_dashboard, opportunity_support,
-    detect_anomalies, analyze_root_cause,
+    detect_anomalies, analyze_root_cause, trend,
 )
-from routers.opportunities import list_opportunities
+from routers.opportunities import list_opportunities, create_opportunity as _create_opp, update_opportunity as _update_opp
 from routers.collections import list_collections, collection_dashboard
+from routers.targets import get_targets as _get_targets
 from services.importer import import_monthly_actuals, import_opportunities, import_collection_items
+from schemas import OpportunityCreate, OpportunityUpdate
 
 router = APIRouter()
 
@@ -92,7 +94,7 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "div_id": {"type": "integer", "description": "事业部ID：1=智能建造, 2=大数据, 3=数字交易, 4=智慧政务"},
+                    "div_id": {"type": "integer", "description": "事业部ID：1=智能建造, 2=大数据, 3=数字交易, 4=智慧政务, 5=创新业务"},
                     "year": {"type": "integer", "description": "查询年份，默认当前年"},
                 },
                 "required": ["div_id"],
@@ -154,7 +156,7 @@ TOOLS = [
                 "properties": {
                     "year":             {"type": "integer", "description": "年份"},
                     "quarter":          {"type": "string", "enum": ["Q1","Q2","Q3","Q4"], "description": "季度"},
-                    "business_unit_id": {"type": "integer", "description": "事业部ID：1=智能建造, 2=大数据, 3=数字交易, 4=智慧政务"},
+                    "business_unit_id": {"type": "integer", "description": "事业部ID：1=智能建造, 2=大数据, 3=数字交易, 4=智慧政务, 5=创新业务"},
                     "metric_type":      {"type": "string", "enum": ["contract","revenue","payment"], "description": "指标类型：contract合同/revenue收入/payment回款"},
                     "stage":            {"type": "string", "enum": ["线索","立项","报价","签约跟进","已完成"], "description": "商机阶段"},
                     "status":           {"type": "string", "enum": ["进行中","已赢单","已输单","已搁置"], "description": "商机状态"},
@@ -223,7 +225,7 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "year":             {"type": "integer", "description": "年份"},
-                    "business_unit_id": {"type": "integer", "description": "事业部ID：1=智能建造, 2=大数据, 3=数字交易, 4=智慧政务"},
+                    "business_unit_id": {"type": "integer", "description": "事业部ID：1=智能建造, 2=大数据, 3=数字交易, 4=智慧政务, 5=创新业务"},
                     "status":           {"type": "string", "enum": ["催收中", "已回款", "已核销"], "description": "状态筛选"},
                 },
                 "required": [],
@@ -284,12 +286,88 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "business_unit_id": {"type": "integer", "description": "事业部ID：1=智能建造, 2=大数据, 3=数字交易, 4=智慧政务"},
+                    "business_unit_id": {"type": "integer", "description": "事业部ID：1=智能建造, 2=大数据, 3=数字交易, 4=智慧政务, 5=创新业务"},
                     "metric_type":      {"type": "string", "enum": ["contract", "revenue", "payment"]},
                     "year":             {"type": "integer", "description": "年份，默认当前年"},
                     "month":            {"type": "integer", "description": "截止月份，默认当前月"},
                 },
                 "required": ["business_unit_id", "metric_type"],
+            },
+        },
+    },
+    # ── 新增工具 ───────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "get_targets",
+            "description": "查询某年各事业部年度目标及12个月分解。当用户询问'目标是多少'、'今年计划'、'年度指标'时使用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "year": {"type": "integer", "description": "查询年份，默认当前年"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_trend",
+            "description": "获取某指标的同比趋势分析：当年与去年逐月对比、YTD对比、同比增长率。当用户询问'同比'、'趋势'、'去年相比'时使用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "metric_type": {"type": "string", "enum": ["contract", "revenue", "payment"], "description": "指标类型：contract合同/revenue收入/payment回款，默认contract"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_opportunity",
+            "description": "新增一条商机记录。当用户说'帮我新增商机'、'录入一条商机'时使用。缺少必填字段时先向用户确认再调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name":               {"type": "string", "description": "商机名称"},
+                    "business_unit_id":   {"type": "integer", "description": "事业部ID：1=智能建造, 2=大数据, 3=数字交易, 4=智慧政务, 5=创新业务"},
+                    "metric_type":        {"type": "string", "enum": ["contract", "revenue", "payment"], "description": "指标类型"},
+                    "year":               {"type": "integer", "description": "所属年度，默认当前年"},
+                    "quarter":            {"type": "string", "enum": ["Q1", "Q2", "Q3", "Q4"], "description": "所属季度"},
+                    "estimated_amount":   {"type": "number", "description": "预计金额（万元）"},
+                    "stage":              {"type": "string", "enum": ["线索", "立项", "报价", "签约跟进", "已完成"], "description": "商机阶段，默认线索"},
+                    "status":             {"type": "string", "enum": ["进行中", "已赢单", "已输单", "已搁置"], "description": "商机状态，默认进行中"},
+                    "estimated_date":     {"type": "string", "description": "预计达成时间，格式 YYYY-MM-DD"},
+                    "notes":              {"type": "string", "description": "备注"},
+                },
+                "required": ["name", "business_unit_id", "metric_type", "quarter", "estimated_amount"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_opportunity",
+            "description": "更新商机信息（状态、金额、阶段等）。当用户说'把某商机改成已赢单'、'更新商机金额'时使用。需先用 get_opportunities 查到商机 ID 再调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "opp_id":           {"type": "integer", "description": "商机ID，必填"},
+                    "name":             {"type": "string"},
+                    "business_unit_id": {"type": "integer"},
+                    "metric_type":      {"type": "string", "enum": ["contract", "revenue", "payment"]},
+                    "year":             {"type": "integer"},
+                    "quarter":          {"type": "string", "enum": ["Q1", "Q2", "Q3", "Q4"]},
+                    "estimated_amount": {"type": "number"},
+                    "stage":            {"type": "string", "enum": ["线索", "立项", "报价", "签约跟进", "已完成"]},
+                    "status":           {"type": "string", "enum": ["进行中", "已赢单", "已输单", "已搁置"]},
+                    "estimated_date":   {"type": "string"},
+                    "notes":            {"type": "string"},
+                },
+                "required": ["opp_id"],
             },
         },
     },
@@ -439,6 +517,50 @@ def _execute_tool(name: str, args: dict, session: Session) -> str:
                 "fail": batch.fail_rows,
                 "failures": failures[:10],
             }, ensure_ascii=False)
+        elif name == "get_targets":
+            year = args.get("year") or date.today().year
+            result = _get_targets(year=year, session=session)
+            return json.dumps(result.data, ensure_ascii=False, default=str)
+        elif name == "get_trend":
+            metric = args.get("metric_type", "contract")
+            result = trend(metric=metric, session=session)
+            return json.dumps(result.data, ensure_ascii=False, default=str)
+        elif name == "create_opportunity":
+            from schemas import OpportunityCreate
+            body = OpportunityCreate(
+                name=args["name"],
+                business_unit_id=args["business_unit_id"],
+                metric_type=args["metric_type"],
+                year=args.get("year") or date.today().year,
+                quarter=args["quarter"],
+                estimated_amount=args["estimated_amount"],
+                stage=args.get("stage", "线索"),
+                status=args.get("status", "进行中"),
+                estimated_date=args.get("estimated_date"),
+                notes=args.get("notes"),
+            )
+            result = _create_opp(body=body, session=session)
+            return json.dumps(result.data, ensure_ascii=False, default=str)
+        elif name == "update_opportunity":
+            from schemas import OpportunityUpdate
+            opp_id = args.pop("opp_id")
+            # 先取已有数据填充缺省字段
+            from models import Opportunity as OppModel
+            opp = session.get(OppModel, opp_id)
+            if not opp:
+                return json.dumps({"error": f"商机ID {opp_id} 不存在"}, ensure_ascii=False)
+            merged = {
+                "name": opp.name, "business_unit_id": opp.business_unit_id,
+                "metric_type": opp.metric_type, "year": opp.year,
+                "quarter": opp.quarter, "estimated_amount": opp.estimated_amount,
+                "stage": opp.stage, "status": opp.status,
+                "estimated_date": str(opp.estimated_date) if opp.estimated_date else None,
+                "notes": opp.notes,
+            }
+            merged.update({k: v for k, v in args.items() if v is not None})
+            body = OpportunityUpdate(**merged)
+            result = _update_opp(opp_id=opp_id, body=body, session=session)
+            return json.dumps(result.data, ensure_ascii=False, default=str)
         else:
             return json.dumps({"error": f"未知工具: {name}"}, ensure_ascii=False)
         return json.dumps(result.data, ensure_ascii=False, default=str)
@@ -462,24 +584,30 @@ def chat(req: ChatRequest, session: Session = Depends(get_session)):
     cur_year = req.year or date.today().year
     cur_month = date.today().month
 
-    system_prompt = f"""你是产品中心经营分析智能体，帮助产品中心负责人快速了解业务运营情况。
+    system_prompt = f"""你是产品中心经营分析智能体「小助」，帮助产品中心负责人快速了解业务运营情况并执行操作。
 
 当前时间：{cur_year}年{cur_month}月
-产品中心下辖4个事业部（ID对应关系）：
+产品中心下辖5个事业部（ID对应关系）：
 - 1: 智能建造事业部
 - 2: 大数据事业部
 - 3: 数字交易事业部
 - 4: 智慧政务事业部
+- 5: 创新业务事业部
 
 核心指标：合同（contract）、收入（revenue）、回款（payment），金额单位均为万元。
 催收项目状态：催收中 / 已回款 / 已核销。
+商机阶段：线索 → 立项 → 报价 → 签约跟进 → 已完成。
+商机状态：进行中 / 已赢单 / 已输单 / 已搁置。
 
 行为准则：
 1. 只使用工具获取真实数据，不编造或估算任何数字
 2. 回答简洁有力，重点突出，用中文回答
 3. 金额保留两位小数，比率保留一位小数后加%
 4. 多指标对比时优先用表格或列表展示
-5. 发现异常（达成率低于60%、同比下滑超20%）时主动提示"""
+5. 发现异常（达成率低于60%、同比下滑超20%）时主动提示
+6. 用户上传文件后，展示数据摘要并主动询问是否导入，导入后汇报结果
+7. 用户要新增商机时，补全缺失字段后调用 create_opportunity 工具，操作成功后告知用户
+8. 用户要修改商机时，先用 get_opportunities 查询确认 ID，再调用 update_opportunity"""
 
     messages = [{"role": "system", "content": system_prompt}]
     messages += [{"role": m.role, "content": m.content} for m in req.messages[-10:]]
@@ -505,6 +633,8 @@ def chat(req: ChatRequest, session: Session = Depends(get_session)):
                 messages.append(msg.model_dump(exclude_unset=False))
                 for tc in msg.tool_calls:
                     args = json.loads(tc.function.arguments)
+                    # 推送工具调用事件给前端
+                    yield f"data: {json.dumps({'tool_call': tc.function.name, 'args': args}, ensure_ascii=False)}\n\n"
                     result = _execute_tool(tc.function.name, args, session)
                     messages.append({
                         "role": "tool",
@@ -554,7 +684,7 @@ def chat(req: ChatRequest, session: Session = Depends(get_session)):
 # ── 文件解析端点 ───────────────────────────────────────
 @router.post("/parse-file")
 async def ai_parse_file(file: UploadFile = File(...)):
-    """解析上传的 Excel/CSV 文件，自动识别类型（月度实绩/商机），返回摘要不写库"""
+    """Parse uploaded Excel/CSV file, detect type, return preview without writing to DB"""
     suffix = os.path.splitext(file.filename)[1] or ".xlsx"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(await file.read())
