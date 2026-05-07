@@ -9,10 +9,12 @@ const routes = [
   { path: '/opportunity', component: () => import('@/views/Opportunity.vue'), meta: { title: '商机分析' } },
   { path: '/trend',       component: () => import('@/views/Trend.vue'),       meta: { title: '同比趋势分析' } },
   { path: '/collection-dashboard', component: () => import('@/views/CollectionDashboard.vue'), meta: { title: '催收仪表盘' } },
+  { path: '/product-dashboard',    component: () => import('@/views/ProductDashboard.vue'),    meta: { title: '产品驾驶舱' } },
   { path: '/targets',     component: () => import('@/views/Targets.vue'),     meta: { title: '年度目标管理' } },
   { path: '/actuals',     component: () => import('@/views/Actuals.vue'),     meta: { title: '月度数据导入' } },
   { path: '/oppmgmt',     component: () => import('@/views/OppMgmt.vue'),     meta: { title: '商机管理' } },
   { path: '/collections', component: () => import('@/views/Collections.vue'), meta: { title: '催收项目管理' } },
+  { path: '/products',    component: () => import('@/views/Products.vue'),    meta: { title: '产品管理台账' } },
   { path: '/settings',    component: () => import('@/views/Settings.vue'),    meta: { title: '设置 & 模板' } },
 ]
 

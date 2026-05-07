@@ -150,3 +150,60 @@ class CollectionRead(CollectionCreate):
 
     class Config:
         from_attributes = True
+
+
+# ── Product ──────────────────────────────────────────
+class MilestoneCreate(BaseModel):
+    name: str
+    planned_date: Optional[date] = None
+    actual_date: Optional[date] = None
+    status: str = "未开始"
+    sort_order: int = 0
+
+
+class MilestoneRead(MilestoneCreate):
+    id: int
+    product_id: int
+
+    class Config:
+        from_attributes = True
+
+
+class AttachmentRead(BaseModel):
+    id: int
+    product_id: int
+    filename: str
+    file_size: int
+    uploaded_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ProductCreate(BaseModel):
+    business_unit_id: int
+    name: str
+    status: str = "立项中"
+    initiated_at: Optional[date] = None
+    product_manager: Optional[str] = None
+    tech_support: Optional[str] = None
+    dev_members: Optional[str] = None
+    progress: Optional[str] = None
+    risk: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ProductUpdate(ProductCreate):
+    pass
+
+
+class ProductRead(ProductCreate):
+    id: int
+    business_unit_name: str
+    milestones: List[MilestoneRead] = []
+    attachments: List[AttachmentRead] = []
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True

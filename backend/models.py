@@ -128,6 +128,45 @@ class TargetChangeLog(SQLModel, table=True):
     changed_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+# ── Product ───────────────────────────────────────────
+class Product(SQLModel, table=True):
+    __tablename__ = "product"
+    id:               Optional[int] = Field(default=None, primary_key=True)
+    business_unit_id: int = Field(foreign_key="business_unit.id")
+    name:             str = Field(max_length=200)
+    status:           str = Field(default="立项中")   # 立项中/开发中/测试中/已上线/已暂停/已终止
+    initiated_at:     Optional[date] = None
+    product_manager:  Optional[str] = Field(default=None, max_length=100)
+    tech_support:     Optional[str] = Field(default=None, max_length=200)
+    dev_members:      Optional[str] = None             # 逗号分隔文本
+    progress:         Optional[str] = None             # 最新进展（覆盖式）
+    risk:             Optional[str] = None             # 最新风险（覆盖式）
+    notes:            Optional[str] = None
+    created_at:       datetime = Field(default_factory=datetime.utcnow)
+    updated_at:       datetime = Field(default_factory=datetime.utcnow)
+
+
+class ProductMilestone(SQLModel, table=True):
+    __tablename__ = "product_milestone"
+    id:           Optional[int] = Field(default=None, primary_key=True)
+    product_id:   int = Field(foreign_key="product.id")
+    name:         str = Field(max_length=200)
+    planned_date: Optional[date] = None
+    actual_date:  Optional[date] = None
+    status:       str = Field(default="未开始")   # 未开始/进行中/已完成/延期
+    sort_order:   int = Field(default=0)
+
+
+class ProductAttachment(SQLModel, table=True):
+    __tablename__ = "product_attachment"
+    id:           Optional[int] = Field(default=None, primary_key=True)
+    product_id:   int = Field(foreign_key="product.id")
+    filename:     str = Field(max_length=500)    # 原始文件名
+    stored_path:  str                            # 服务器磁盘路径
+    file_size:    int = Field(default=0)         # 字节数
+    uploaded_at:  datetime = Field(default_factory=datetime.utcnow)
+
+
 # ── MemoryItem ────────────────────────────────────────
 class MemoryItem(SQLModel, table=True):
     __tablename__ = "memory_item"

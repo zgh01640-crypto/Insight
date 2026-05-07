@@ -11,6 +11,10 @@ SEED_UNITS = [
     {"code": "SZJY", "name": "数字交易事业部", "sort_order": 3},
     {"code": "ZHZW", "name": "智慧政务事业部", "sort_order": 4},
     {"code": "CXYW", "name": "创新业务事业部", "sort_order": 5},
+    {"code": "SZZJ", "name": "数字造价事业部", "sort_order": 6},
+    {"code": "SZSJ", "name": "数字设计研发部", "sort_order": 7},
+    {"code": "SLRJ", "name": "算量软件研发部", "sort_order": 8},
+    {"code": "PTRJ", "name": "平台研发部",     "sort_order": 9},
 ]
 
 

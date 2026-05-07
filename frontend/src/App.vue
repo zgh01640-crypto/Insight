@@ -16,12 +16,14 @@ const navItems = [
     { path: '/opportunity',          label: '商机分析',      icon: 'TrendCharts' },
     { path: '/trend',                label: '同比趋势分析',  icon: 'DataLine' },
     { path: '/collection-dashboard', label: '催收仪表盘',    icon: 'Money' },
+    { path: '/product-dashboard',    label: '产品驾驶舱',    icon: 'Goods' },
   ]},
   { group: '数据管理', items: [
     { path: '/targets',      label: '年度目标管理', icon: 'AimFilled' },
     { path: '/actuals',      label: '月度数据导入', icon: 'Upload' },
     { path: '/oppmgmt',      label: '商机管理',     icon: 'Opportunity' },
     { path: '/collections',  label: '催收项目管理', icon: 'CreditCard' },
+    { path: '/products',     label: '产品管理台账', icon: 'Goods' },
   ]},
   { group: '系统', items: [
     { path: '/settings', label: '设置 & 模板', icon: 'Setting' },

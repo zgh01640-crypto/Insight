@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 from database import init_db
-from routers import targets, actuals, opportunities, dashboard, imports, ai, reports, collections, conversations, memory
+from routers import targets, actuals, opportunities, dashboard, imports, ai, reports, collections, conversations, memory, products
 
 app = FastAPI(title="Insight 经营分析智能体", version="2.0.0")
 
@@ -59,6 +59,7 @@ app.include_router(conversations.router, prefix="/api/conversations", tags=["对
 app.include_router(ai.router,            prefix="/api/ai",           tags=["AI助手"])
 app.include_router(reports.router,       prefix="/api/reports",      tags=["分析报告"])
 app.include_router(memory.router,        prefix="/api/memory",       tags=["长期记忆"])
+app.include_router(products.router,      prefix="/api/products",     tags=["产品管理"])
 
 
 @app.on_event("startup")

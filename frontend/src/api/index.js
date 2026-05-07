@@ -65,6 +65,24 @@ export const aiParseFile   = (file)     => _upload('/ai/parse-file', file)
 export const getMemories   = (category) => http.get('/memory/', { params: category ? { category } : {} })
 export const deleteMemory  = (id)       => http.delete(`/memory/${id}`)
 
+// ── 产品管理 ──────────────────────────────────────────
+export const getProducts        = (params)          => http.get('/products/', { params })
+export const getProduct         = (id)              => http.get(`/products/${id}`)
+export const getProductDashboard= ()                => http.get('/products/dashboard')
+export const createProduct      = (data)            => http.post('/products/', data)
+export const updateProduct      = (id, data)        => http.put(`/products/${id}`, data)
+export const deleteProduct      = (id)              => http.delete(`/products/${id}`)
+
+export const getMilestones      = (pid)             => http.get(`/products/${pid}/milestones`)
+export const createMilestone    = (pid, data)       => http.post(`/products/${pid}/milestones`, data)
+export const updateMilestone    = (pid, mid, data)  => http.put(`/products/${pid}/milestones/${mid}`, data)
+export const deleteMilestone    = (pid, mid)        => http.delete(`/products/${pid}/milestones/${mid}`)
+
+export const getAttachments     = (pid)             => http.get(`/products/${pid}/attachments`)
+export const uploadAttachment   = (pid, file)       => _upload(`/products/${pid}/attachments`, file)
+export const deleteAttachment   = (pid, aid)        => http.delete(`/products/${pid}/attachments/${aid}`)
+export const getAttachmentUrl   = (aid)             => `/api/products/attachments/${aid}/download`
+
 function _upload(url, file) {
   const fd = new FormData()
   fd.append('file', file)

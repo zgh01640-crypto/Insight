@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//d/工作目录/2026产品中心管理/**)",
+      "Read(//d//**)",
+      "Bash(python -c ' *)",
+      "Bash(python d:/ClaudeCode/Insight/import_products.py)",
+      "Bash(del d:\\\\ClaudeCode\\\\Insight\\\\import_products.py)",
+      "Bash(del D:\\\\pdf_dump.json)",
+      "Bash(del D:\\\\units.json)",
+      "Bash(rm D:/pdf_dump.json)",
+      "Bash(rm D:/units.json)",
+      "Bash(curl -s http://localhost:8010/api/products/dashboard)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('total:', d['data']['summary']['total']\\); print\\('by_status:', d['data']['summary']['by_status']\\); print\\('at_risk:', d['data']['summary']['at_risk_count']\\)\")"
+    ],
+    "additionalDirectories": [
+      "D:\\"
+    ]
+  }
+}

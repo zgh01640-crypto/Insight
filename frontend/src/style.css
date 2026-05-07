@@ -32,7 +32,9 @@ body {
 }
 
 /* Element Plus dark theme overrides */
-.el-table { --el-table-bg-color: var(--bg-card); --el-table-tr-bg-color: var(--bg-card); --el-table-header-bg-color: var(--bg-base); --el-table-border-color: var(--bg-border); --el-table-text-color: var(--text-pri); --el-table-header-text-color: var(--text-sec); --el-fill-color-lighter: var(--bg-hover); }
+.el-table { --el-table-bg-color: var(--bg-card); --el-table-tr-bg-color: var(--bg-card); --el-table-header-bg-color: var(--bg-base); --el-table-border-color: var(--bg-border); --el-table-text-color: var(--text-pri); --el-table-header-text-color: var(--text-sec); --el-fill-color-lighter: #1a2333; --el-table-current-row-bg-color: #1a2333; }
+.el-table__body tr:hover > td.el-table__cell { background-color: #1a2333 !important; }
+.el-table__body tr.current-row > td.el-table__cell { background-color: #1a2333 !important; }
 .el-input__wrapper { background: var(--bg-base) !important; box-shadow: 0 0 0 1px var(--bg-border) inset !important; }
 .el-input__inner { color: var(--text-pri) !important; }
 .el-select-dropdown { background: #1a2332; border-color: var(--bg-border); }
